@@ -1,18 +1,20 @@
-# -------------------------------------------------------------
-# Cálculo de la matriz de Import Share (BIS)
-# Numerador = valores originales
-# Denominador = suma por país destino y sector (total doméstico + importado)
-# Resultado final exportado como Base_Import_Share_R.xlsx
-# -------------------------------------------------------------
+############################################################
+# Paquetes
+############################################################
 
+# (Solo hace falta instalarlos una vez)
+# install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr", "writexl"))
+
+library(readxl)
 library(dplyr)
-library(tidyr)
 library(openxlsx)
+library(tidyr)
+library(stringr)
 library(writexl)
 
-# -------------------------------------------------------------
-# 1. Definición de sectores y países de referencia
-# -------------------------------------------------------------
+############################################################
+# VECTORES DE ORGANIZACIÓN DE DATOS
+############################################################
 
 sectores_columna <- c(
   "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL",
@@ -67,118 +69,119 @@ sectores_finales <- c(
 )
 
 Country <- c(
-  "AUSTRIA", "BELGIUM", "BULGARIA", "CROATIA", "CYPRUS", "CZECHREPUBLIC", "DENMARK",
+  "AUSTRIA", "BELGIUM", "BULGARIA", "CROATIA", "CYPRUS", "CZECHREPUBLIC","DENMARK",
   "ESTONIA", "FINLAND", "FRANCE", "GERMANY", "GREECE", "HUNGARY",
   "IRELAND", "ITALY", "LATVIA", "LITHUANIA", "LUXEMBOURG", "MALTA", "NETHERLANDS",
   "POLAND", "PORTUGAL", "ROMANIA", "SLOVAKIA", "SLOVENIA", "SPAIN", "SWEDEN",
   "UK", "CHINA", "EASOC", "INDIA", "LATAM", "RUSSIA", "USMCA", "LROW"
 )
 
-# -------------------------------------------------------------
-# 2. Lectura y limpieza de DATA_BIS_ORIGIN
-# -------------------------------------------------------------
+############################################################
+# NUMERADOR: IMPORTACIONES POR PAÍS DESTINO Y SECTOR
+############################################################
 
-# Lee el Excel original
+# Leer excel
 data_BIS_origin <- read.xlsx("./Base_Import_Share/DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
-
-# Elimina posibles restos finales (te quedas con las primeras 2206 filas)
 data_BIS_origin <- data_BIS_origin[1:2206, , drop = FALSE]
 
-# Elimina TAXES y VALUE_ADDED
-data_BIS <- data_BIS_origin[!(data_BIS_origin[, 2] %in%
-                               c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS", "VALUE_ADDED")),
+# Quitamos TAXES y VALUE_ADDED
+data_BIS <- data_BIS_origin[!(data_BIS_origin[,2] %in%
+                                c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),
                             , drop = FALSE]
-
 data_BIS <- as.data.frame(data_BIS)
 
-# País y sector por fila
-paises   <- data_BIS[, 1]
-sectores <- data_BIS[, 2]
+# Países y sectores (filas)
+paises   <- data_BIS[,1]
+sectores <- data_BIS[,2]
 
-# Índices de columnas numéricas (a partir de la 3)
-numeric_cols <- 3:ncol(data_BIS)
-
-# Convierte a numérico y sustituye NA por 0
+# Parte numérica
+numeric_cols    <- 3:ncol(data_BIS)
 datos_numericos <- apply(data_BIS[, numeric_cols, drop = FALSE], 2, as.numeric)
 datos_numericos[is.na(datos_numericos)] <- 0
 datos_numericos <- as.matrix(datos_numericos)
 
-# Data frame numérico completo (conservando nombres originales de columnas)
-data_BIS_num <- cbind(Pais = paises,
-                      Sector = sectores,
-                      as.data.frame(datos_numericos))
-colnames(data_BIS_num) <- colnames(data_BIS)
+columnas_totales <- colnames(data_BIS)[numeric_cols]
 
-# -------------------------------------------------------------
-# 3. Numerador: valores originales
-# -------------------------------------------------------------
+# Matriz numerador
+numerador_BIS <- matrix(0, nrow = nrow(data_BIS), ncol = length(numeric_cols))
 
-numerador_BIS_df <- data_BIS_num
-
-# -------------------------------------------------------------
-# 4. Denominador: suma por país destino y sector
-# -------------------------------------------------------------
-
-n_rows <- nrow(data_BIS)
-n_cols <- length(numeric_cols)
-
-colnames_numericas <- colnames(data_BIS)[numeric_cols]
-
-denominador_BIS <- matrix(0, nrow = n_rows, ncol = n_cols)
-
-for (fila in seq_len(n_rows)) {
+for (fila in seq_len(nrow(data_BIS))) {
   pais_actual   <- paises[fila]
   sector_actual <- sectores[fila]
-
-  # Columnas cuyo país destino es pais_actual
-  columnas_mismo_pais <- which(startsWith(colnames_numericas, paste0(pais_actual, "_")))
-  if (length(columnas_mismo_pais) == 0) next
-
-  # Todas las filas con el mismo sector (en todos los países)
+  
+  # Columnas del mismo país destino
+  columnas_mismo_pais <- which(startsWith(columnas_totales, paste0(pais_actual, "_")))
+  
+  # Filas del mismo sector (todos los países) excepto la fila actual
   filas_mismo_sector <- which(sectores == sector_actual)
-  if (length(filas_mismo_sector) == 0) next
-
-  # Suma total (doméstico + importado) del sector hacia ese país destino
-  suma_columnas <- colSums(datos_numericos[filas_mismo_sector,
-                                           columnas_mismo_pais,
-                                           drop = FALSE])
-
-  denominador_BIS[fila, columnas_mismo_pais] <- suma_columnas
+  filas_a_sumar      <- setdiff(filas_mismo_sector, fila)
+  
+  if (length(columnas_mismo_pais) > 0 && length(filas_a_sumar) > 0) {
+    suma_columnas <- colSums(datos_numericos[filas_a_sumar,
+                                             columnas_mismo_pais,
+                                             drop = FALSE])
+    numerador_BIS[fila, columnas_mismo_pais] <- suma_columnas
+  }
 }
 
-denominador_BIS_df <- cbind(Pais = paises,
-                             Sector = sectores,
-                             as.data.frame(denominador_BIS))
+numerador_BIS_df <- cbind(
+  Pais   = paises,
+  Sector = sectores,
+  as.data.frame(numerador_BIS)
+)
+colnames(numerador_BIS_df) <- colnames(data_BIS)
+
+############################################################
+# DENOMINADOR: TOTAL (DOMÉSTICO + IMPORTADO) POR PAÍS DESTINO Y SECTOR
+############################################################
+
+denominador_BIS <- matrix(0, nrow = nrow(data_BIS), ncol = length(numeric_cols))
+
+for (fila in seq_len(nrow(data_BIS))) {
+  pais_actual   <- paises[fila]
+  sector_actual <- sectores[fila]
+  
+  columnas_mismo_pais <- which(startsWith(columnas_totales, paste0(pais_actual, "_")))
+  filas_mismo_sector  <- which(sectores == sector_actual)
+  
+  if (length(columnas_mismo_pais) > 0 && length(filas_mismo_sector) > 0) {
+    suma_columnas <- colSums(datos_numericos[filas_mismo_sector,
+                                             columnas_mismo_pais,
+                                             drop = FALSE])
+    denominador_BIS[fila, columnas_mismo_pais] <- suma_columnas
+  }
+}
+
+denominador_BIS_df <- cbind(
+  Pais   = paises,
+  Sector = sectores,
+  as.data.frame(denominador_BIS)
+)
 colnames(denominador_BIS_df) <- colnames(data_BIS)
 
-# -------------------------------------------------------------
-# 5. Ordenación de filas (por país, tipo de sector y prioridad)
-# -------------------------------------------------------------
+############################################################
+# ORDENACIÓN DE FILAS (PAÍS, TIPO DE SECTOR, PRIORIDAD)
+############################################################
 
-# Prioridad de sectores productivos
 orden_sectores <- match(sectores, sectores_prioritarios)
 orden_sectores[is.na(orden_sectores)] <- length(sectores_prioritarios) + 1
 
-# TRUE si es sector final (para mandarlos al final)
 es_sector_final <- sectores %in% sectores_finales
 
-# Prioridad de países
 orden_paises <- match(paises, Country)
 orden_paises[is.na(orden_paises)] <- length(Country) + 1
 
-# Orden: país -> (no final / final) -> prioridad del sector
 orden_filas <- order(orden_paises, es_sector_final, orden_sectores)
 
-# Aplica el mismo orden al numerador y al denominador
 numerador_BIS_df   <- numerador_BIS_df[orden_filas, , drop = FALSE]
 denominador_BIS_df <- denominador_BIS_df[orden_filas, , drop = FALSE]
 
 paises_ord   <- paises[orden_filas]
 sectores_ord <- sectores[orden_filas]
 
-# -------------------------------------------------------------
-# 6. Import Share intermedio: numerador / denominador
-# -------------------------------------------------------------
+############################################################
+# IMPORT SHARE FINAL (INTERMEDIATE_IMPORT_SHARE_RAW)
+############################################################
 
 intermediate_import_share_raw <- numerador_BIS_df
 
@@ -186,87 +189,92 @@ intermediate_import_share_raw[, numeric_cols] <-
   numerador_BIS_df[, numeric_cols] /
   denominador_BIS_df[, numeric_cols]
 
-# Sustituir NA, Inf, -Inf por 0
+# Sustituir NA/Inf por 0
 mat_tmp <- as.matrix(intermediate_import_share_raw[, numeric_cols])
 mat_tmp[!is.finite(mat_tmp)] <- 0
 intermediate_import_share_raw[, numeric_cols] <- mat_tmp
 
-# Asignar rownames coherentes
-rownames(intermediate_import_share_raw) <- paste(paises_ord,
-                                                 sectores_ord,
-                                                 sep = "_")
+# Rownames País_Sector ya ordenados
+rownames(intermediate_import_share_raw) <- paste(paises_ord, sectores_ord, sep = "_")
 
-# -------------------------------------------------------------
-# 7. "Trasposición" por país destino: bloques país×país
-# -------------------------------------------------------------
+############################################################
+# (Opcional) pivot_longer para inspección
+############################################################
+
+a <- intermediate_import_share_raw %>% 
+  pivot_longer(
+    cols = -c(Pais, Sector),
+    names_to = c("Country2", "Sector2"),
+    names_pattern = "([^_]*)_(.*)"
+  )
+
+############################################################
+# TRASPOSICIÓN / AGRUPACIÓN POR PAÍS DESTINO
+############################################################
 
 intermediate_import_share_raw <- as.data.frame(intermediate_import_share_raw)
 
-# Nombres de filas y columnas (solo parte numérica)
+# Nombres de filas y columnas numéricas
 paises_sectores_filas    <- rownames(intermediate_import_share_raw)
 paises_sectores_columnas <- colnames(intermediate_import_share_raw)[numeric_cols]
 
-# Extraer país y sector de las filas
-paises_filas   <- sub("_.*", "",  paises_sectores_filas)
-sectores_filas <- sub("^[^_]*_", "", paises_sectores_filas)
+# País y sector de filas (Pais_Sector)
+paises_filas   <- sub("_.*",      "",  paises_sectores_filas)
+sectores_filas <- sub("^[^_]*_",  "",  paises_sectores_filas)
 
-# Extraer país y sector de las columnas (country_sector)
-paises_columnas   <- sub("_.*", "",  paises_sectores_columnas)
-sectores_columnas <- sub("^[^_]*_", "", paises_sectores_columnas)
+# País y sector de columnas (Pais_Sector_destino)
+paises_columnas   <- sub("_.*",      "",  paises_sectores_columnas)
+sectores_columnas <- sub("^[^_]*_",  "",  paises_sectores_columnas)
 
-# Lista de submatrices por país destino
+# Lista para almacenar submatrices por país destino
 lista_matrices <- list()
 
-for (pais_dest in unique(paises_columnas)) {
-  filas_pais    <- which(paises_filas == pais_dest)
-  columnas_pais <- which(paises_columnas == pais_dest)
-
+for (pais in unique(paises_columnas)) {
+  filas_pais    <- which(paises_filas    == pais)
+  columnas_pais <- which(paises_columnas == pais)
+  
   if (length(filas_pais) == 0 || length(columnas_pais) == 0) next
-
-  # columnas_pais está indexado sobre las columnas numéricas
+  
   submatriz <- intermediate_import_share_raw[filas_pais,
                                              numeric_cols[columnas_pais],
                                              drop = FALSE]
-
-  # Renombrar columnas: quitar el prefijo de país (de "AT_CROPS" a "CROPS")
-  colnames(submatriz) <- sub("^[^_]*_", "", colnames(submatriz))
-
-  lista_matrices[[pais_dest]] <- submatriz
+  lista_matrices[[pais]] <- submatriz
 }
 
-# Unificar columnas entre países usando el orden deseado de sectores
-all_cols_present <- unique(unlist(lapply(lista_matrices, colnames)))
-col_order <- intersect(sectores_columna, all_cols_present)
+# Quitar prefijo de país en los nombres de columnas (de "FRANCE_CROPS" a "CROPS")
+lista_matrices2 <- lapply(lista_matrices, function(df) {
+  colnames(df) <- sub("^[^_]*_", "", colnames(df))
+  df
+})
 
-lista_matrices_alineadas <- lapply(lista_matrices, function(df) {
-  # Añadir columnas faltantes como 0
+# Alinear todas las submatrices al conjunto de sectores_columna
+all_cols   <- unique(unlist(lapply(lista_matrices2, colnames)))
+col_order  <- intersect(sectores_columna, all_cols)
+
+lista_matrices_alineadas <- lapply(lista_matrices2, function(df) {
   missing_cols <- setdiff(col_order, colnames(df))
   if (length(missing_cols) > 0) {
-    for (mc in missing_cols) {
-      df[[mc]] <- 0
-    }
+    for (mc in missing_cols) df[[mc]] <- 0
   }
   df <- df[, col_order, drop = FALSE]
   df
 })
 
-# Apilar todas las submatrices país×país
+# Apilar todo
 resultado_matriz <- do.call(rbind, lista_matrices_alineadas)
 resultado_df     <- as.data.frame(resultado_matriz)
 
-# Añadir columnas de País y Sector (a partir de los rownames)
+# Añadir País y Sector a partir de los rownames
 row_ids     <- rownames(resultado_df)
-Pais_fila   <- sub("_.*", "",  row_ids)
-Sector_fila <- sub("^[^_]*_", "", row_ids)
+Pais_out    <- sub("_.*",     "",  row_ids)
+Sector_out  <- sub("^[^_]*_", "",  row_ids)
 
-resultado_df <- cbind(Pais = Pais_fila,
-                      Sector = Sector_fila,
+resultado_df <- cbind(Pais = Pais_out,
+                      Sector = Sector_out,
                       resultado_df)
 
-# -------------------------------------------------------------
-# 8. Exportar a Excel
-# -------------------------------------------------------------
+############################################################
+# EXPORTAR A EXCEL
+############################################################
 
 write_xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")
-
-# Fin del script
