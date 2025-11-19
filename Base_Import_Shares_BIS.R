@@ -284,37 +284,6 @@ a <- intermediate_import_share_raw %>%
                names_pattern = "([^_]*)_(.*)",) %>%  # cómo se ha pivotado, para pivotar solamente lo que esta en la primera barrabaja )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Obtener los nombres originales de las filas y columnas
   paises_sectores_filas <- rownames(intermediate_import_share_raw)
   paises_sectores_columnas <- colnames(intermediate_import_share_raw)
