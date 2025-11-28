@@ -1,5 +1,5 @@
-install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr"))
-install.packages("writexl")
+#install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr"))
+#install.packages("writexl")
 
 # Lectura del excel
 library(readxl)
@@ -66,7 +66,7 @@ Country<- c("AUSTRIA", "BELGIUM", "BULGARIA", "CROATIA", "CYPRUS", "CZECHREPUBLI
 # NUMERADOR 
 ###################
 
-data_BIS_origin<-read.xlsx("./Base_Import_Share/DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
+data_BIS_origin<-read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
 data_BIS_origin<-data_BIS_origin[1:2206,]
 data_BIS<-data_BIS_origin[!(data_BIS_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
 

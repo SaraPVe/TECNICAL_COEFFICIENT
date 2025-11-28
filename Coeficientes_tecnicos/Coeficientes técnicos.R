@@ -1,4 +1,4 @@
-install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr"))
+#install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr"))
 # Lectura del excel
 library(readxl)
 library(dplyr)
@@ -6,7 +6,7 @@ library(openxlsx)
 library(tidyr)
 library(stringr)
 #CALCULOS
-matrix_io<- read.xlsx("./Base_Import_Share/DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
+matrix_io<- read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
 # Identificar columnas numéricas (todas excepto las dos primeras)
   numeric_cols <- colnames(matrix_io)[-c(1, 2)]
 # Calcular la suma total por cada columna
@@ -14,8 +14,8 @@ column_totals <- matrix_io %>%
 summarise(across(all_of(numeric_cols), \(x) sum(x, na.rm = TRUE)))
 # Calcular la suma total por cada fila
 sector_consumption <- matrix_io %>%
-group_by(Sectors) %>%
-summarise(across(-c(Country), sum, na.rm = TRUE))  # Excluimos `Country`
+group_by(Sector) %>%
+summarise(across(-c(Pais), sum, na.rm = TRUE))  # Excluimos `Country`
 # Extraer la primera columna de texto (sin modificar)
 text_column <- sector_consumption[[1]]  # La primera columna de texto
 numeric_matrix <- as.matrix(sector_consumption[, -1])
