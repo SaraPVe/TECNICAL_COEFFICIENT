@@ -224,5 +224,5 @@ if (ncol(resultado_df) == length(sectores_columna)) {
 # Pais_out    <- sub("_.*","",   row_ids)
 # Sector_out  <- sub("^[^_]*_","",row_ids)
 # resultado_df <- cbind(Pais = Pais_out, Sector = Sector_out, resultado_df)
-
+resultado_df[resultado_df==0]<-0.00001
 write_xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")

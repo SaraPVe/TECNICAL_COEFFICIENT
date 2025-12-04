@@ -1,5 +1,5 @@
-install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr"))
-install.packages("writexl")
+# install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr"))
+# install.packages("writexl")
 # Lectura del excel
 library(readxl)
 library(dplyr)
@@ -105,7 +105,7 @@ data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_P
     group_by(Pais_col, Sector_Fila, Sector_Columna) %>%  # Agrupar por país, sector en filas y sector en columnas
     mutate(Valor = if_else(
       Pais == Pais_col, 
-      0,  # Si el país coincide con su columna, ponemos 0
+      0,00001,  # Si el país coincide con su columna, ponemos 0
       sum(Valor[Pais != Pais_col], na.rm = TRUE)  # Sumamos valores dentro del sector, excluyendo el país actual
     )) %>%
     pivot_wider(names_from = Sector_Columna, values_from = Valor) %>%  # Volver a formato ancho con sectores como columnas
@@ -128,6 +128,6 @@ data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_P
     mutate(Pais=factor(Pais,levels = Country)) %>% 
     mutate(Sector_Fila=factor(Sector_Fila, levels = sectores_prioritarios)) %>% 
     arrange(Pais, Sector_Fila)
-  
+  BISO<-ifelse(BISO==0,0.0001, BISO)
   write.xlsx(as.data.frame(BISO), "./Base_Import_share_by_origin/BISO.xlsx")
   
