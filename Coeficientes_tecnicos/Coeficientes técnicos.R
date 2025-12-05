@@ -6,9 +6,12 @@ library(openxlsx)
 library(tidyr)
 library(stringr)
 #CALCULOS
-matrix_io<- read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
+matrix_io_origin<- read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
+matrix_io_origin<-matrix_io_origin[1:2206,]
+matrix_io<-matrix_io_origin[!(matrix_io_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
+any(is.na(matrix_io))
 # Identificar columnas numéricas (todas excepto las dos primeras)
-  numeric_cols <- colnames(matrix_io)[-c(1, 2)]
+numeric_cols <- colnames(matrix_io)[-c(1, 2)]
 # Calcular la suma total por cada columna
 column_totals <- matrix_io %>%
 summarise(across(all_of(numeric_cols), \(x) sum(x, na.rm = TRUE)))
@@ -22,10 +25,12 @@ numeric_matrix <- as.matrix(sector_consumption[, -1])
 numeric_vector <- as.numeric(column_totals[1, ])
 # Dimensiones de la matriz numérica
 dim(numeric_matrix)  # Debe ser 64 filas x 2170 columnas
+any(is.na(numeric_matrix))
 # Longitud del vector numérico
 length(numeric_vector)  # Debe ser 2170
 # Dividir cada columna de la matriz por el vector
 divided_matrix <- sweep(numeric_matrix, 2, numeric_vector, "/")
+any(is.na(divided_matrix))
 # Combinar la columna de texto con la matriz dividida
 final_matrix <- cbind(Text = text_column, divided_matrix)
 write.xlsx(as.data.frame(final_matrix), "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
@@ -53,6 +58,7 @@ mutate(across(
     names_pattern = "([^_]*)_(.*)",) %>%  # cómo se ha pivotado, para pivotar solamente lo que esta en la primera barrabaja
   relocate(Country, .before = Text)  # cambiar orden  sector
 write.xlsx(as.data.frame(a), "./Coeficientes_tecnicos/Tecnical coefficients V1.xlsx")
+load("data/mis_sectores.RData")
 sector_order <- c(
   "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL", 
   "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS", "MINING_AND_MANUFACTURING_URANIUM_THORIUM", 
@@ -82,6 +88,8 @@ df <- df %>%
 mutate(Country=factor(Country,levels = Country_order),
 Text = factor(Text, levels = sector_order)) %>%
 arrange(Country, Text)  # Ordenar por país y sector
+df[is.na(df)] <- 0
+df[df==0]<-0.00001
 write.xlsx(as.data.frame(df), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
-
-
+any(is.na(df))
+rm(list = ls())

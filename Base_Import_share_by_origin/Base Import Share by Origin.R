@@ -7,67 +7,18 @@ library(openxlsx)
 library(tidyr)
 library(stringr)
 library(writexl)
-
 ###################
 # VECTORES DE ORGANIZACIÓN DE DATOS
 ###################
-
-sectores_columna <- c( "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL", 
-                       "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS", "MINING_AND_MANUFACTURING_URANIUM_THORIUM", 
-                       "MINING_AND_MANUFACTURING_IRON", "MINING_AND_MANUFACTURING_COPPER", 
-                       "MINING_AND_MANUFACTURING_NICKEL", "MINING_AND_MANUFACTURING_ALUMINIUM", 
-                       "MINING_AND_MANUFACTURING_PRECIOUS_METALS", "MINING_AND_MANUFACTURING_LEAD_ZINC_TIN", 
-                       "MINING_AND_MANUFACTURING_OTHER_METALS", "MINING_NON_METALS", "MANUFACTURE_FOOD", 
-                       "MANUFACTURE_WOOD", "COKE", "REFINING", "MANUFACTURE_CHEMICAL", "MANUFACTURE_PLASTIC", 
-                       "MANUFACTURE_OTHER_NON_METAL", "HYDROGEN_PRODUCTION", "MANUFACTURE_METAL_PRODUCTS", 
-                       "MANUFACTURE_ELECTRONICS", "MANUFACTURE_ELECTRICAL_EQUIPMENT", "MANUFACTURE_MACHINERY", 
-                       "MANUFACTURE_VEHICLES", "MANUFACTURE_OTHER", "ELECTRICITY_COAL", "ELECTRICITY_GAS", 
-                       "ELECTRICITY_NUCLEAR", "ELECTRICITY_HYDRO", "ELECTRICITY_WIND", "ELECTRICITY_OIL", 
-                       "ELECTRICITY_SOLAR_PV", "ELECTRICITY_SOLAR_THERMAL", "ELECTRICITY_OTHER", 
-                       "DISTRIBUTION_ELECTRICITY", "DISTRIBUTION_GAS", "STEAM_HOT_WATER", "WASTE_MANAGEMENT", 
-                       "CONSTRUCTION", "TRADE_REPAIR_VEHICLES", "TRANSPORT_RAIL", "TRANSPORT_OTHER_LAND", 
-                       "TRANSPORT_PIPELINE", "TRANSPORT_SEA", "TRANSPORT_INLAND_WATER", "TRANSPORT_AIR", 
-                       "ACCOMMODATION", "TELECOMMUNICATIONS", "FINANCE", "REAL_ESTATE", "OTHER_SERVICES", 
-                       "PUBLIC_ADMINISTRATION", "EDUCATION", "HEALTH", "ENTERTAIMENT", "PRIVATE_HOUSEHOLDS",
-                       "HOUSEHOLDS_FINAL_CONSUMPTION_EXPENDITURE", "NON-PROFIT_INSTITUTIONS_SERVING_HOUSEHOLDS", 
-                       "GENERAL_GOVERNMENT_FINAL_CONSUMPTION", "GROSS_FIXED_CAPITAL_FORMATION", 
-                       "CHANGE_IN_INVENTORIES_AND_VALUABLES", "DIRECT_PURCHASES_ABROAD")
-
-sectores_prioritarios<- c("CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL", 
-                          "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS", "MINING_AND_MANUFACTURING_URANIUM_THORIUM", 
-                          "MINING_AND_MANUFACTURING_IRON", "MINING_AND_MANUFACTURING_COPPER", 
-                          "MINING_AND_MANUFACTURING_NICKEL", "MINING_AND_MANUFACTURING_ALUMINIUM", 
-                          "MINING_AND_MANUFACTURING_PRECIOUS_METALS", "MINING_AND_MANUFACTURING_LEAD_ZINC_TIN", 
-                          "MINING_AND_MANUFACTURING_OTHER_METALS", "MINING_NON_METALS", "MANUFACTURE_FOOD", 
-                          "MANUFACTURE_WOOD", "COKE", "REFINING", "MANUFACTURE_CHEMICAL", "MANUFACTURE_PLASTIC", 
-                          "MANUFACTURE_OTHER_NON_METAL", "HYDROGEN_PRODUCTION", "MANUFACTURE_METAL_PRODUCTS", 
-                          "MANUFACTURE_ELECTRONICS", "MANUFACTURE_ELECTRICAL_EQUIPMENT", "MANUFACTURE_MACHINERY", 
-                          "MANUFACTURE_VEHICLES", "MANUFACTURE_OTHER", "ELECTRICITY_COAL", "ELECTRICITY_GAS", 
-                          "ELECTRICITY_NUCLEAR", "ELECTRICITY_HYDRO", "ELECTRICITY_WIND", "ELECTRICITY_OIL", 
-                          "ELECTRICITY_SOLAR_PV", "ELECTRICITY_SOLAR_THERMAL", "ELECTRICITY_OTHER", 
-                          "DISTRIBUTION_ELECTRICITY", "DISTRIBUTION_GAS", "STEAM_HOT_WATER", "WASTE_MANAGEMENT", 
-                          "CONSTRUCTION", "TRADE_REPAIR_VEHICLES", "TRANSPORT_RAIL", "TRANSPORT_OTHER_LAND", 
-                          "TRANSPORT_PIPELINE", "TRANSPORT_SEA", "TRANSPORT_INLAND_WATER", "TRANSPORT_AIR", 
-                          "ACCOMMODATION", "TELECOMMUNICATIONS", "FINANCE", "REAL_ESTATE", "OTHER_SERVICES", 
-                          "PUBLIC_ADMINISTRATION", "EDUCATION", "HEALTH", "ENTERTAIMENT", "PRIVATE_HOUSEHOLDS")
-
-
-sectores_finales <- c("HOUSEHOLDS_FINAL_CONSUMPTION_EXPENDITURE", "NON-PROFIT_INSTITUTIONS_SERVING_HOUSEHOLDS", 
-                      "GENERAL_GOVERNMENT_FINAL_CONSUMPTION", "GROSS_FIXED_CAPITAL_FORMATION", 
-                      "CHANGE_IN_INVENTORIES_AND_VALUABLES", "DIRECT_PURCHASES_ABROAD")
-
-Country<- c("AUSTRIA", "BELGIUM", "BULGARIA", "CROATIA", "CYPRUS", "CZECHREPUBLIC","DENMARK", 
-            "ESTONIA", "FINLAND", "FRANCE", "GERMANY", "GREECE", "HUNGARY",
-            "IRELAND", "ITALY", "LATVIA", "LITHUANIA", "LUXEMBOURG", "MALTA", "NETHERLANDS", 
-            "POLAND", "PORTUGAL", "ROMANIA", "SLOVAKIA", "SLOVENIA", "SPAIN", "SWEDEN", 
-            "UK", "CHINA", "EASOC", "INDIA", "LATAM", "RUSSIA", "USMCA", "LROW")
-
-
+load("Data/mis_sectores.RData")
 #########
 #Numerador
 #########
 data_BIS_origin<-read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE) #lee el excel
-data_BIS_origin<-data_BIS_origin[1:2206,] #había datos que no se acababan de ir de calculos hechos en el excel, los he quitado
+save(data_BIS_origin, file = "Data/Data_origin.RData")
+data_BIS_origin<-load("Data/Data_origin.RData")
+data_BIS_origin<-data_BIS_origin[1:2206,] 
+ #había datos que no se acababan de ir de calculos hechos en el excel, los he quitado
 data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
 
   Numerador_BISO_raw <- data_BIS %>%
@@ -128,6 +79,7 @@ data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_P
     mutate(Pais=factor(Pais,levels = Country)) %>% 
     mutate(Sector_Fila=factor(Sector_Fila, levels = sectores_prioritarios)) %>% 
     arrange(Pais, Sector_Fila)
+BISO[is.na(BISO)]<-0
   BISO<-ifelse(BISO==0,0.0001, BISO)
   write.xlsx(as.data.frame(BISO), "./Base_Import_share_by_origin/BISO.xlsx")
-  
+  rm(list = ls())
