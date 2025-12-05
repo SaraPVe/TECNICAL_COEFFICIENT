@@ -12,12 +12,8 @@ library(writexl)
 ###################
 # VECTORES DE ORGANIZACIÓN DE DATOS
 ###################
-load("data/mis_sectores.RData")
-###################
-# NUMERADOR 
-###################
-
-data_BIS_origin<-read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
+load("Data/mis_sectores.RData")
+load("Data/Data_origin.RData")
 data_BIS_origin<-data_BIS_origin[1:2206,]
 data_BIS<-data_BIS_origin[!(data_BIS_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
 any(is.na(data_BIS))
@@ -176,6 +172,6 @@ if (ncol(resultado_df) == length(sectores_columna)) {
 # Sector_out  <- sub("^[^_]*_","",row_ids)
 # resultado_df <- cbind(Pais = Pais_out, Sector = Sector_out, resultado_df)
 resultado_df[resultado_df==0]<-0.00001
-write_xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")
+write.xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")
 any(is.na(resultado_df))
 rm(list = ls())
