@@ -11,12 +11,7 @@ library(writexl)
 # VECTORES DE ORGANIZACIÓN DE DATOS
 ###################
 load("Data/mis_sectores.RData")
-#########
-#Numerador
-#########
-data_BIS_origin<-read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE) #lee el excel
-save(data_BIS_origin, file = "Data/Data_origin.RData")
-data_BIS_origin<-load("Data/Data_origin.RData")
+load("Data/Data_origin.RData")
 data_BIS_origin<-data_BIS_origin[1:2206,] 
  #había datos que no se acababan de ir de calculos hechos en el excel, los he quitado
 data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
