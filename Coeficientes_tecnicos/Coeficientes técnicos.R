@@ -6,8 +6,9 @@ library(openxlsx)
 library(tidyr)
 library(stringr)
 #CALCULOS
-matrix_io_origin<- read.xlsx("DATA_BIS_ORIGIN.xlsx", colNames = TRUE)
-matrix_io_origin<-matrix_io_origin[1:2206,]
+load("Data/mis_sectores.RData")
+load("Data/Data_origin.RData")
+matrix_io_origin<-data_BIS_origin[1:2206,]
 matrix_io<-matrix_io_origin[!(matrix_io_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
 any(is.na(matrix_io))
 # Identificar columnas numéricas (todas excepto las dos primeras)

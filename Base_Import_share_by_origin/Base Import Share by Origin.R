@@ -7,6 +7,7 @@ library(openxlsx)
 library(tidyr)
 library(stringr)
 library(writexl)
+library(data.table)
 ###################
 # VECTORES DE ORGANIZACIÓN DE DATOS
 ###################
@@ -15,7 +16,7 @@ load("Data/Data_origin.RData")
 data_BIS_origin<-data_BIS_origin[1:2206,] 
  #había datos que no se acababan de ir de calculos hechos en el excel, los he quitado
 data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
-
+#numerador
   Numerador_BISO_raw <- data_BIS %>%
     pivot_longer(cols = -c(Pais, Sector),  # Pivotar todas las columnas excepto PAIS y SECTOR
                  names_to = "Pais_columna",  
@@ -28,14 +29,11 @@ data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_P
   Numerador_BISO<-Numerador_BISO_raw %>%  
   pivot_wider(names_from = Sector_limpio, values_from = Valor) %>% 
   arrange(Pais_col, Sector, Pais)
- 
-########
+
 #Denominador
-#######
-  
+
   # Detectar las columnas numéricas (sectores en las columnas)
   columnas_valores <- names(Numerador_BISO)[sapply(Numerador_BISO, is.numeric)]
-  
   # Si ya existe una columna llamada "Sector", la renombramos temporalmente
   if ("Sector" %in% names(Numerador_BISO)) {
     Numerador_BISO <- Numerador_BISO %>%
@@ -73,6 +71,10 @@ data_BIS<-data_BIS_origin [!(data_BIS_origin[,2]%in%c("TAXES_LESS_SUBSIDIES_ON_P
     arrange(Pais, Sector_Fila)
 any(is.na(BISO))
 BISO[is.na(BISO)]<-0
-BISO<-ifelse(BISO==0,0.0001, BISO)
-write.xlsx(as.data.frame(BISO), "./Base_Import_share_by_origin/BISO.xlsx")
+BISO <- BISO %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.infinite(.), 0, .)))
+BISO <- BISO %>%
+  mutate(across(where(is.numeric), ~ if_else(. == 0, 0.0001, .)))
+
+writexl::write_xlsx(BISO,"./Base_Import_share_by_origin/BISO.xlsx")
 rm(list = ls())
