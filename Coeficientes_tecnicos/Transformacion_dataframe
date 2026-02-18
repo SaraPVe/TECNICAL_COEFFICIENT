@@ -1,0 +1,56 @@
+library(readxl)
+library(stringr)
+
+# -------- CONFIG
+xlsx_path  <- "Coeficientes_tecnicos/Calculos limpio MRIO_pruebas.xlsx"
+sheet_name <- 1  # primera hoja
+out_rdata  <- "Data/Data_origin_WILIAM.RData"
+
+# -------- 1) Leer TODO sin cabecera (porque las 2 primeras filas son cabecera)
+raw <- read_excel(xlsx_path, sheet = sheet_name, col_names = FALSE)
+raw <- as.data.frame(raw, stringsAsFactors = FALSE)
+
+# -------- helper: si hay celdas combinadas en cabecera, rellena hacia la derecha
+fill_right <- function(x) {
+  x <- as.character(x)
+  last <- NA_character_
+  for (i in seq_along(x)) {
+    if (!is.na(x[i]) && x[i] != "") last <- x[i]
+    if ((is.na(x[i]) || x[i] == "") && !is.na(last)) x[i] <- last
+  }
+  x
+}
+
+# -------- 2) Construir nombres de columnas (desde col 3): Pais(fila1) + Sector(fila2)
+col_country <- fill_right(unlist(raw[1, -c(1,2)]))
+col_sector  <- as.character(unlist(raw[2, -c(1,2)]))
+
+col_ids <- paste0(col_country, "_", col_sector)
+col_ids <- str_replace_all(col_ids, "\\s+", "")             # quita espacios
+col_ids <- str_replace_all(col_ids, "CZECH_REPUBLIC", "CZECHREPUBLIC")
+
+# -------- 3) Construir columnas Pais y Sector (desde fila 3)
+Pais   <- as.character(unlist(raw[-c(1,2), 1]))
+Sector <- as.character(unlist(raw[-c(1,2), 2]))
+
+Pais   <- str_replace_all(Pais, "\\s+", "")
+Sector <- str_replace_all(Sector, "\\s+", "")
+Pais   <- str_replace_all(Pais, "CZECH_REPUBLIC", "CZECHREPUBLIC")
+
+# -------- 4) Extraer bloque numérico y convertir a numeric
+num_block <- raw[-c(1,2), -c(1,2), drop = FALSE]
+
+# Convertir todo a numeric (por si viene como texto)
+num_block <- as.data.frame(lapply(num_block, function(x) as.numeric(as.character(x))))
+
+# -------- 5) Montar el data.frame final como tu matrix_io
+data_origin <- cbind(
+  Pais = Pais,
+  Sector = Sector,
+  num_block
+)
+names(data_origin)[-c(1,2)] <- col_ids
+
+# -------- 6) Guardar como RData
+save(data_origin, file = out_rdata)
+rm(list = ls())

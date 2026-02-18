@@ -7,10 +7,11 @@ library(tidyr)
 library(stringr)
 #CALCULOS
 load("Data/mis_sectores.RData")
-load("Data/Data_origin.RData")
-matrix_io_origin<-data_BIS_origin[1:2206,]
-matrix_io<-matrix_io_origin[!(matrix_io_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
-any(is.na(matrix_io))
+load("Data/Data_origin_WILIAM.RData")
+#data_BIS<-data_BIS_origin
+matrix_io<-data_origin[1:2206,]
+#matrix_io<-matrix_io_origin[!(matrix_io_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
+#any(is.na(matrix_io))
 # Identificar columnas numéricas (todas excepto las dos primeras)
 numeric_cols <- colnames(matrix_io)[-c(1, 2)]
 # Calcular la suma total por cada columna
@@ -89,8 +90,6 @@ df <- df %>%
 mutate(Country=factor(Country,levels = Country_order),
 Text = factor(Text, levels = sector_order)) %>%
 arrange(Country, Text)  # Ordenar por país y sector
-df[is.na(df)] <- 0
-df[df==0]<-0.00001
 write.xlsx(as.data.frame(df), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
 any(is.na(df))
 rm(list = ls())
