@@ -1,0 +1,135 @@
+# install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr", "stringr", "writexl", "data.table"))
+
+###################
+# LIBRERÍAS
+###################
+library(readxl)
+library(dplyr)
+library(openxlsx)
+library(tidyr)
+library(stringr)
+library(writexl)
+library(data.table)
+
+###################
+# CARGA DE DATOS Y VECTORES
+###################
+load("Data/mis_sectores.RData")          # Country, sectores_prioritarios, etc.
+load("Data/Data_origin_UNIZAR.RData")    # data_origin
+
+data_BIS_origin <- data_origin
+data_BIS <- data_BIS_origin[1:2206, ]    # recorte como en tu script
+
+###################
+# 1) PASO A FORMATO LARGO (BASE)
+###################
+Numerador_BISO_raw <- data_BIS %>%
+  pivot_longer(
+    cols = -c(Pais, Sector),
+    names_to = "Pais_columna",
+    values_to = "Valor"
+  ) %>%
+  relocate(Pais_columna, .after = Sector) %>%
+  separate(
+    col = Pais_columna,
+    into = c("Pais_col", "Sector_col"),
+    sep = "_",
+    extra = "merge"
+  ) %>%
+  mutate(
+    Pais = str_squish(as.character(Pais)),
+    Sector = str_squish(as.character(Sector)),
+    Pais_col = str_squish(as.character(Pais_col)),
+    Sector_limpio = str_remove(Sector_col, "\\d+$")
+  ) %>%
+  select(-Sector_col)
+
+###################
+# 2) CÁLCULO TIPO EXCEL (SI.ERROR(...,0) y diagonal a 0)
+###################
+BISO_long <- Numerador_BISO_raw %>%
+  group_by(Pais, Sector, Pais_col, Sector_limpio) %>%
+  summarise(
+    numerador = sum(Valor, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(Pais_col, Sector, Sector_limpio) %>%
+  mutate(
+    denominador = sum(numerador[Pais != Pais_col], na.rm = TRUE),
+    share = if_else(
+      Pais == Pais_col,
+      0,
+      if_else(denominador == 0 | is.na(denominador), 0, numerador / denominador)
+    )
+  ) %>%
+  ungroup()
+
+###################
+# 3) VOLVER A ANCHO (FORMATO FINAL)
+#    + ORDENAR LAS COLUMNAS DE SECTORES (Sector_limpio) SEGÚN EL ORDEN DE LOS SECTORES EN FILAS
+###################
+BISO <- BISO_long %>%
+  select(Pais, Sector_Fila = Sector, Pais_col, Sector_limpio, share) %>%
+  pivot_wider(names_from = Sector_limpio, values_from = share)
+
+# --- Orden deseado de columnas-sector:
+# Si quieres que las columnas-sector sigan el mismo orden que los sectores en filas,
+# usamos 'sectores_prioritarios' (si existe). Si no, usamos el orden alfabético.
+cols_id <- c("Pais", "Sector_Fila", "Pais_col")
+
+cols_sector_actuales <- setdiff(names(BISO), cols_id)
+
+if (exists("sectores_prioritarios")) {
+  # Limpio por si acaso (espacios)
+  sectores_prioritarios_clean <- str_squish(as.character(sectores_prioritarios))
+
+  # Muchas veces Sector_limpio coincide con estos nombres; si no, se quedarán como "extras"
+  cols_sector_ordenadas <- intersect(sectores_prioritarios_clean, cols_sector_actuales)
+  cols_sector_extras <- setdiff(cols_sector_actuales, cols_sector_ordenadas)
+
+  # Primero las que están en sectores_prioritarios, luego las extras (alfabéticas)
+  cols_sector_final <- c(cols_sector_ordenadas, sort(cols_sector_extras))
+} else {
+  cols_sector_final <- sort(cols_sector_actuales)
+}
+
+BISO <- BISO %>%
+  select(all_of(cols_id), all_of(cols_sector_final))
+
+###################
+# 4) ORDEN Y FACTORES (PAÍSES Y SECTORES EN FILAS)
+###################
+# Para que no se rompa el orden si hay países “extra” fuera de Country,
+# extendemos niveles con extras (y así no se vuelven NA)
+if (exists("Country")) {
+  Country_clean <- str_squish(as.character(Country))
+  extras_pais <- setdiff(unique(BISO$Pais), Country_clean)
+  niveles_pais <- c(Country_clean, extras_pais)
+
+  BISO <- BISO %>%
+    mutate(Pais = factor(str_squish(as.character(Pais)), levels = niveles_pais))
+}
+
+if (exists("sectores_prioritarios")) {
+  BISO <- BISO %>%
+    mutate(Sector_Fila = factor(str_squish(as.character(Sector_Fila)),
+                                levels = str_squish(as.character(sectores_prioritarios))))
+}
+
+BISO <- BISO %>%
+  arrange(Pais, Sector_Fila)
+
+###################
+# 5) SI.ERROR(...,0): CONVERTIR NA A 0 (solo numéricas)
+###################
+BISO <- BISO %>%
+  mutate(across(where(is.numeric), ~ replace_na(., 0)))
+
+# Comprobación
+any(is.na(BISO))
+
+###################
+# 6) EXPORTAR (OPCIONAL)
+###################
+writexl::write_xlsx(BISO, "./Base_Import_share_by_origin/BISO.xlsx")
+# rm(list = ls())

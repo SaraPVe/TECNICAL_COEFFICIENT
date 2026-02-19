@@ -13,7 +13,7 @@ library(writexl)
 # VECTORES DE ORGANIZACIÓN DE DATOS
 ###################
 load("Data/mis_sectores.RData")
-load("Data/Data_origin.RData")
+load("Data/Data_origin_WILIAM.RData")
 data_BIS_origin<-data_BIS_origin[1:2206,]
 data_BIS<-data_BIS_origin[!(data_BIS_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
 any(is.na(data_BIS))

@@ -59,7 +59,7 @@ mutate(across(
     names_to = c("Country", ".value"),    # Nombre para los países
     names_pattern = "([^_]*)_(.*)",) %>%  # cómo se ha pivotado, para pivotar solamente lo que esta en la primera barrabaja
   relocate(Country, .before = Text)  # cambiar orden  sector
-write.xlsx(as.data.frame(a), "./Coeficientes_tecnicos/Tecnical coefficients V1.xlsx")
+#write.xlsx(as.data.frame(a), "./Coeficientes_tecnicos/Tecnical coefficients V1.xlsx")
 load("data/mis_sectores.RData")
 sector_order <- c(
   "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL", 
