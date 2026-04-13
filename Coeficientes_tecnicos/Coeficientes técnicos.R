@@ -7,6 +7,7 @@ library(tidyr)
 library(stringr)
 #CALCULOS
 load("Data/mis_sectores.RData")
+#load("Data/Data_origin_WILIAM.RData")
 load("Data/Data_origin_UNIZAR.RData")
 #data_origin<-data_BIS_origin
 matrix_io<-data_origin[1:2206,]
