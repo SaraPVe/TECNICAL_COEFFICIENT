@@ -36,22 +36,6 @@ divided_matrix <- sweep(numeric_matrix, 2, numeric_vector, "/")
 any(is.na(divided_matrix))
 # Combinar la columna de texto con la matriz dividida
 final_matrix <- cbind(Text = text_column, divided_matrix)
-# ¿Dónde están los negativos en divided_matrix?
-neg_positions <- which(divided_matrix < 0, arr.ind = TRUE)
-cat("Número de valores negativos:", nrow(neg_positions), "\n")
-
-# Ver los casos concretos: sector, columna y valor
-for (i in seq_len(nrow(neg_positions))) {
-  fila <- neg_positions[i, 1]
-  col  <- neg_positions[i, 2]
-  cat(sprintf(
-    "Sector: %s | Columna: %s | Valor original: %.6f | Denominador: %.6f\n",
-    text_column[fila],
-    numeric_cols[col],
-    numeric_matrix[fila, col],   # valor ANTES de dividir
-    numeric_vector[col]          # denominador
-  ))
-}
 write.xlsx(as.data.frame(final_matrix), "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
 #Trasponemos los datos para que queden en la forma del excel
 sector_column <- final_matrix[[1]] #primera columna de los sectores
@@ -62,8 +46,6 @@ colnames(data_matrix) <- paste0("Country_", seq_len(ncol(data_matrix)))  # Asegu
 data_matrix <- cbind(Sector = sector_column, data_matrix)
 #Seleccionamos los nombres de los paises y de los sectores
 matrix_data <- read_excel("./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx", col_names = TRUE) 
-
-
 a<-matrix_data %>%
   rename_with(~ str_replace_all(., fixed("CZECH_REPUBLIC"), "CZECHREPUBLIC")) %>% 
 mutate(across(
@@ -108,9 +90,11 @@ df <- df %>%
 mutate(Country=factor(Country,levels = Country_order),
 Text = factor(Text, levels = sector_order)) %>%
 arrange(Country, Text)  # Ordenar por país y sector
-write.xlsx(as.data.frame(df), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
+df_final <- df|> filter(!is.na(Text) & Text != "")
+write.xlsx(as.data.frame(df_final), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
 any(is.na(df))
 sum(numeric_vector < 0)       # ¿Cuántos son negativos?
 sum(numeric_vector == 0)      # ¿Cuántos son cero? (generarían NaN/Inf)
 min(numeric_vector)           # Ver el mínimo
-rm(list = ls())
+#rm(list = ls())
+
