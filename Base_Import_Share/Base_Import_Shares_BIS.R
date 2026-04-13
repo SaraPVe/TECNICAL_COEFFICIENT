@@ -13,9 +13,9 @@ library(writexl)
 # VECTORES DE ORGANIZACIÓN DE DATOS
 ###################
 load("Data/mis_sectores.RData")
-load("Data/Data_origin_WILIAM.RData")
-data_BIS_origin<-data_BIS_origin[1:2206,]
-data_BIS<-data_BIS_origin[!(data_BIS_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
+load("Data/Data_origin_UNIZAR.RData")
+data_BIS<-data_origin[1:2206,]
+data_BIS<-data_BIS[!(data_BIS[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
 any(is.na(data_BIS))
 data_BIS <- as.data.frame(data_BIS)
 
@@ -174,4 +174,4 @@ if (ncol(resultado_df) == length(sectores_columna)) {
 resultado_df[resultado_df==0]<-0.00001
 write.xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")
 any(is.na(resultado_df))
-rm(list = ls())
+#rm(list = ls())
