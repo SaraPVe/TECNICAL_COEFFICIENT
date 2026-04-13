@@ -100,11 +100,6 @@ BISO <- BISO %>%
   mutate(Sector_Fila = factor(as.character(Sector_Fila),
                               levels = sector_orden_original))
 
-# ► Usamos sector_orden_filas también para el factor de Sector_Fila
-BISO <- BISO %>%
-  mutate(Sector_Fila = factor(as.character(Sector_Fila),
-                              levels = sector_orden_filas))
-
 BISO <- BISO %>%
   arrange(Pais, Sector_Fila)
 
