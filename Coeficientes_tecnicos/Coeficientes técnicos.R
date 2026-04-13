@@ -7,11 +7,11 @@ library(tidyr)
 library(stringr)
 #CALCULOS
 load("Data/mis_sectores.RData")
-load("Data/Data_origin_WILIAM.RData")
-#data_BIS<-data_BIS_origin
+load("Data/Data_origin_UNIZAR.RData")
+#data_origin<-data_BIS_origin
 matrix_io<-data_origin[1:2206,]
-#matrix_io<-matrix_io_origin[!(matrix_io_origin[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
-#any(is.na(matrix_io))
+#matrix_io<-matrix_io[!(matrix_io[,2] %in% c("TAXES_LESS_SUBSIDIES_ON_PRODUCTS","VALUE_ADDED")),]
+any(is.na(matrix_io))
 # Identificar columnas numéricas (todas excepto las dos primeras)
 numeric_cols <- colnames(matrix_io)[-c(1, 2)]
 # Calcular la suma total por cada columna
@@ -35,6 +35,22 @@ divided_matrix <- sweep(numeric_matrix, 2, numeric_vector, "/")
 any(is.na(divided_matrix))
 # Combinar la columna de texto con la matriz dividida
 final_matrix <- cbind(Text = text_column, divided_matrix)
+# ¿Dónde están los negativos en divided_matrix?
+neg_positions <- which(divided_matrix < 0, arr.ind = TRUE)
+cat("Número de valores negativos:", nrow(neg_positions), "\n")
+
+# Ver los casos concretos: sector, columna y valor
+for (i in seq_len(nrow(neg_positions))) {
+  fila <- neg_positions[i, 1]
+  col  <- neg_positions[i, 2]
+  cat(sprintf(
+    "Sector: %s | Columna: %s | Valor original: %.6f | Denominador: %.6f\n",
+    text_column[fila],
+    numeric_cols[col],
+    numeric_matrix[fila, col],   # valor ANTES de dividir
+    numeric_vector[col]          # denominador
+  ))
+}
 write.xlsx(as.data.frame(final_matrix), "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
 #Trasponemos los datos para que queden en la forma del excel
 sector_column <- final_matrix[[1]] #primera columna de los sectores
@@ -85,11 +101,15 @@ Country_order<- c("AUSTRIA", "BELGIUM", "BULGARIA", "CROATIA", "CYPRUS", "CZECHR
 "IRELAND", "ITALY", "LATVIA", "LITHUANIA", "LUXEMBOURG", "MALTA", "NETHERLANDS", 
 "POLAND", "PORTUGAL", "ROMANIA", "SLOVAKIA", "SLOVENIA", "SPAIN", "SWEDEN", 
 "UK", "CHINA", "EASOC", "INDIA", "LATAM", "RUSSIA", "USMCA", "LROW")
-df<- read.xlsx("./Coeficientes_tecnicos/Tecnical coefficients V1.xlsx")
+#df<- read.xlsx("./Coeficientes_tecnicos/Tecnical coefficients V1.xlsx")
+df<-a
 df <- df %>%
 mutate(Country=factor(Country,levels = Country_order),
 Text = factor(Text, levels = sector_order)) %>%
 arrange(Country, Text)  # Ordenar por país y sector
 write.xlsx(as.data.frame(df), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
 any(is.na(df))
+sum(numeric_vector < 0)       # ¿Cuántos son negativos?
+sum(numeric_vector == 0)      # ¿Cuántos son cero? (generarían NaN/Inf)
+min(numeric_vector)           # Ver el mínimo
 rm(list = ls())
