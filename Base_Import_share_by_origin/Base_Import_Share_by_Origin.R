@@ -1,5 +1,5 @@
 ###################
-# LIBRERÍAS
+# LIBRERIAS
 ###################
 library(tidyverse)   # includes dplyr, tidyr, stringr, readr, etc.
 library(readxl)
@@ -9,7 +9,42 @@ library(writexl)
 # CARGA DE DATOS Y VECTORES
 ###################
 load("Data/Data_origin_UNIZAR.RData")    # data_origin
-# 62 sectores válidos
+
+# 62 sectores validos
+sector_orden_original <- c(
+  "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL",
+  "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS", "MINING_AND_MANUFACTURING_URANIUM_THORIUM",
+  "MINING_AND_MANUFACTURING_IRON", "MINING_AND_MANUFACTURING_COPPER",
+  "MINING_AND_MANUFACTURING_NICKEL", "MINING_AND_MANUFACTURING_ALUMINIUM",
+  "MINING_AND_MANUFACTURING_PRECIOUS_METALS", "MINING_AND_MANUFACTURING_LEAD_ZINC_TIN",
+  "MINING_AND_MANUFACTURING_OTHER_METALS", "MINING_NON_METALS", "MANUFACTURE_FOOD",
+  "MANUFACTURE_WOOD", "COKE", "REFINING", "MANUFACTURE_CHEMICAL", "MANUFACTURE_PLASTIC",
+  "MANUFACTURE_OTHER_NON_METAL", "HYDROGEN_PRODUCTION", "MANUFACTURE_METAL_PRODUCTS",
+  "MANUFACTURE_ELECTRONICS", "MANUFACTURE_ELECTRICAL_EQUIPMENT", "MANUFACTURE_MACHINERY",
+  "MANUFACTURE_VEHICLES", "MANUFACTURE_OTHER", "ELECTRICITY_COAL", "ELECTRICITY_GAS",
+  "ELECTRICITY_NUCLEAR", "ELECTRICITY_HYDRO", "ELECTRICITY_WIND", "ELECTRICITY_OIL",
+  "ELECTRICITY_SOLAR_PV", "ELECTRICITY_SOLAR_THERMAL", "ELECTRICITY_OTHER",
+  "DISTRIBUTION_ELECTRICITY", "DISTRIBUTION_GAS", "STEAM_HOT_WATER", "WASTE_MANAGEMENT",
+  "CONSTRUCTION", "TRADE_REPAIR_VEHICLES", "TRANSPORT_RAIL", "TRANSPORT_OTHER_LAND",
+  "TRANSPORT_PIPELINE", "TRANSPORT_SEA", "TRANSPORT_INLAND_WATER", "TRANSPORT_AIR",
+  "ACCOMMODATION", "TELECOMMUNICATIONS", "FINANCE", "REAL_ESTATE", "OTHER_SERVICES",
+  "PUBLIC_ADMINISTRATION", "EDUCATION", "HEALTH", "ENTERTAIMENT", "PRIVATE_HOUSEHOLDS"
+)
+
+data_BIS <- data_origin[1:2206, ]
+data_BIS <- data_BIS[data_BIS$Sector %in% sector_orden_original, ]
+###################
+# 1) PASO A FORMATO LARGO (BASE)
+###################
+Numerador_BISO_raw <- data_BIS %>%
+  pivot_longer(
+    cols = -c(Pais, Sector),
+    names_to = "Pais_columna",
+    values_to = "Valor"
+  ) %>%
+load("Data/Data_origin_UNIZAR.RData")    # data_origin
+
+# 62 sectores validos
 sector_orden_original <- c(
   "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL",
   "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS", "MINING_AND_MANUFACTURING_URANIUM_THORIUM",
@@ -56,7 +91,7 @@ Numerador_BISO_raw <- data_BIS %>%
          Sector_limpio %in% sector_orden_original)
 
 ###################
-# 2) CÁLCULO TIPO EXCEL (SI.ERROR(...,0) y diagonal a 0)
+# 2) CALCULO TIPO EXCEL (SI.ERROR(...,0) y diagonal a 0)
 ###################
 BISO_long <- Numerador_BISO_raw %>%
   group_by(Pais, Sector, Pais_col, Sector_limpio) %>%
@@ -88,7 +123,7 @@ BISO <- BISO_long %>%
 cols_id <- c("Pais_col", "Sector_Fila", "Pais")
 cols_sector_actuales <- setdiff(names(BISO), cols_id)
 
-# ► Intersección manteniendo el orden de las filas; extras al final
+# Interseccion manteniendo el orden de las filas; extras al final
 cols_sector_ordenadas <- intersect(sector_orden_original, cols_sector_actuales)
 cols_sector_extras    <- setdiff(cols_sector_actuales, cols_sector_ordenadas)
 cols_sector_final     <- c(cols_sector_ordenadas, sort(cols_sector_extras))
@@ -96,7 +131,7 @@ BISO <- BISO %>%
   select(all_of(cols_id), all_of(cols_sector_final))
 
 ###################
-# 4) ORDEN, FACTORES Y NA → 0
+# 4) ORDEN, FACTORES Y NA a 0
 ###################
 BISO <- BISO %>%
   mutate(
@@ -105,7 +140,7 @@ BISO <- BISO %>%
   ) %>%
   arrange(Pais, Sector_Fila, Pais_col)
 
-# Comprobación
+# Comprobacion
 any(is.na(BISO))
 
 ###################
