@@ -1,0 +1,10 @@
+# Excel temp files
+~$*
+
+# R session
+.Rhistory
+.RData
+.Rproj.user/
+
+# macOS
+.DS_Store
