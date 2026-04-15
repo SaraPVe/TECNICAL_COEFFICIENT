@@ -1,24 +1,16 @@
-# install.packages(c("readxl", "tidyr", "dplyr", "openxlsx", "readr", "stringr", "writexl", "data.table"))
-install.packages("tidyverse")
 ###################
 # LIBRERÍAS
 ###################
+library(tidyverse)   # includes dplyr, tidyr, stringr, readr, etc.
 library(readxl)
-library(dplyr)
 library(openxlsx)
-library(tidyr)
-library(stringr)
 library(writexl)
-library(data.table)
-library(tidyverse)
 ###################
 # CARGA DE DATOS Y VECTORES
 ###################
 load("Data/Data_origin_UNIZAR.RData")    # data_origin
 
-data_BIS_origin <- data_origin
-data_BIS <- data_BIS_origin[1:2206, ]
-data_BIS <- data_BIS_origin[1:2206, ]
+data_BIS <- data_origin[1:2206, ]
 
 # ► Orden original de sectores tal como vienen en el Excel importado
 sector_orden_original <- unique(as.character(data_BIS$Sector))
@@ -31,7 +23,6 @@ Numerador_BISO_raw <- data_BIS %>%
     names_to = "Pais_columna",
     values_to = "Valor"
   ) %>%
-  relocate(Pais_columna, .after = Sector) %>%
   separate(
     col = Pais_columna,
     into = c("Pais_col", "Sector_col"),
@@ -39,9 +30,7 @@ Numerador_BISO_raw <- data_BIS %>%
     extra = "merge"
   ) %>%
   mutate(
-    Pais = str_squish(as.character(Pais)),
-    Sector = str_squish(as.character(Sector)),
-    Pais_col = str_squish(as.character(Pais_col)),
+    across(c(Pais, Sector, Pais_col), ~ str_squish(as.character(.))),
     Sector_limpio = str_remove(Sector_col, "\\d+$")
   ) %>%
   select(-Sector_col)
@@ -58,10 +47,11 @@ BISO_long <- Numerador_BISO_raw %>%
   group_by(Pais_col, Sector, Sector_limpio) %>%
   mutate(
     denominador = sum(numerador[Pais != Pais_col], na.rm = TRUE),
-    share = if_else(
-      Pais == Pais_col,
-      0,
-      if_else(denominador == 0 | is.na(denominador), 0, numerador / denominador)
+    share = case_when(
+      Pais == Pais_col        ~ 0,
+      denominador == 0        ~ 0,
+      is.na(denominador)      ~ 0,
+      TRUE                    ~ numerador / denominador
     )
   ) %>%
   ungroup()
@@ -70,9 +60,6 @@ BISO_long <- Numerador_BISO_raw %>%
 # 3) VOLVER A ANCHO (FORMATO FINAL)
 #    + ORDENAR COLUMNAS-SECTOR EN EL MISMO ORDEN QUE LOS SECTORES EN FILAS
 ###################
-
-# ► Capturamos el orden de sectores tal como aparecen en las FILAS (antes de pivotar)
-sector_orden_filas <- unique(as.character(BISO_long$Sector))
 
 BISO <- BISO_long %>%
   select(Pais, Sector_Fila = Sector, Pais_col, Sector_limpio, share) %>%
@@ -89,25 +76,14 @@ BISO <- BISO %>%
   select(all_of(cols_id), all_of(cols_sector_final))
 
 ###################
-# 4) ORDEN Y FACTORES (PAÍSES Y SECTORES EN FILAS)
+# 4) ORDEN, FACTORES Y NA → 0
 ###################
-if (exists("Country")) {
-  Country_clean  <- as.character(Country)
-  extras_pais    <- setdiff(unique(BISO$Pais), Country_clean)
-  niveles_pais   <- c(Country_clean, extras_pais)
-}
 BISO <- BISO %>%
-  mutate(Sector_Fila = factor(as.character(Sector_Fila),
-                              levels = sector_orden_original))
-
-BISO <- BISO %>%
+  mutate(
+    Sector_Fila = factor(as.character(Sector_Fila), levels = sector_orden_original),
+    across(where(is.numeric), ~ replace_na(., 0))
+  ) %>%
   arrange(Pais, Sector_Fila)
-
-###################
-# 5) SI.ERROR(...,0): CONVERTIR NA A 0 (solo numéricas)
-###################
-BISO <- BISO %>%
-  mutate(across(where(is.numeric), ~ replace_na(., 0)))
 
 # Comprobación
 any(is.na(BISO))
@@ -115,4 +91,4 @@ any(is.na(BISO))
 ###################
 # 6) EXPORTAR
 ###################
-writexl::write_xlsx(BISO, "./Base_Import_share_by_origin/BISO.xlsx")
+write_xlsx(BISO, "./Base_Import_share_by_origin/BISO.xlsx") 
