@@ -1,10 +1,17 @@
 ###################
 # LIBRERIAS
 ###################
-library(tidyverse)   # includes dplyr, tidyr, stringr, readr, etc.
-library(readxl)
-library(openxlsx)
-library(writexl)
+required_packages <- c("dplyr", "tidyr", "writexl")
+missing_packages <- required_packages[!required_packages %in% installed.packages()[, "Package"]]
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages, repos = "https://cloud.r-project.org", dependencies = TRUE)
+}
+
+suppressWarnings(suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(writexl)
+}))
 ###################
 # CARGA DE DATOS Y VECTORES
 ###################
@@ -83,8 +90,8 @@ Numerador_BISO_raw <- data_BIS %>%
     extra = "merge"
   ) %>%
   mutate(
-    across(c(Pais, Sector, Pais_col), ~ str_squish(as.character(.))),
-    Sector_limpio = str_remove(Sector_col, "\\d+$")
+    across(c(Pais, Sector, Pais_col), ~ trimws(gsub("\\s+", " ", as.character(.)))),
+    Sector_limpio = sub("\\d+$", "", Sector_col)
   ) %>%
   select(-Sector_col) %>%
   filter(Sector %in% sector_orden_original,
@@ -144,6 +151,21 @@ BISO <- BISO %>%
 any(is.na(BISO))
 
 ###################
-# 6) EXPORTAR
+# 6) DIAGNÓSTICO Y RECORTE A [0, 1]
+###################
+cols_numericas <- names(BISO)[sapply(BISO, is.numeric)]
+
+n_mayores1 <- sum(BISO[, cols_numericas] > 1, na.rm = TRUE)
+n_menores0 <- sum(BISO[, cols_numericas] < 0, na.rm = TRUE)
+if (n_mayores1 > 0 || n_menores0 > 0) {
+  message("Aviso: ", n_mayores1, " celda(s) > 1 y ",
+          n_menores0, " celda(s) < 0 encontradas. Se recortan a [0, 1].")
+}
+
+BISO[, cols_numericas] <- lapply(BISO[, cols_numericas],
+                                  function(x) pmin(pmax(x, 0), 1))
+
+###################
+# 7) EXPORTAR
 ###################
 write_xlsx(BISO,"./Base_Import_share_by_origin/BISO.xlsx")

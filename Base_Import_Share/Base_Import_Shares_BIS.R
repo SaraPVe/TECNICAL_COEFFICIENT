@@ -1,6 +1,11 @@
-library(tidyverse)   # includes dplyr, tidyr, stringr, readr, etc.
-library(readxl)
-library(openxlsx)
+required_packages <- c("writexl")
+missing_packages <- required_packages[!required_packages %in% installed.packages()[, "Package"]]
+
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages, repos = "https://cloud.r-project.org", dependencies = TRUE)
+}
+
+suppressWarnings(suppressPackageStartupMessages(library(writexl)))
 
 ###################
 # VECTORES DE ORGANIZACIÓN DE DATOS
@@ -96,5 +101,15 @@ if (ncol(resultado_df) == length(sectores_columna)) {
   colnames(resultado_df) <- sectores_columna
 }
 
-resultado_df[resultado_df == 0] <- 0.00001
-write.xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")
+# Diagnóstico: celdas fuera de rango [0, 1]
+n_mayores1  <- sum(resultado_df > 1,  na.rm = TRUE)
+n_menores0  <- sum(resultado_df < 0,  na.rm = TRUE)
+if (n_mayores1 > 0 || n_menores0 > 0) {
+  message("Aviso: ", n_mayores1, " celda(s) > 1 y ",
+          n_menores0, " celda(s) < 0 encontradas. Se recortan a [0, 1].")
+}
+
+# Recorte: forzar import share a [0, 1]
+resultado_df <- as.data.frame(lapply(resultado_df, function(x) pmin(pmax(x, 0), 1)))
+
+write_xlsx(resultado_df, "./Base_Import_Share/Base_Import_Share_R.xlsx")

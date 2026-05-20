@@ -1,6 +1,13 @@
-library(tidyverse)
-library(readxl)
-library(openxlsx)
+required_packages <- c("dplyr", "tidyr", "writexl")
+missing_packages <- required_packages[!required_packages %in% installed.packages()[, "Package"]]
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages, repos = "https://cloud.r-project.org", dependencies = TRUE)
+}
+suppressWarnings(suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(writexl)
+}))
 
 ###################
 # CARGA DE DATOS
@@ -30,14 +37,14 @@ divided_matrix <- sweep(numeric_matrix, 2, numeric_vector, "/")
 
 # Exportar matriz intermedia
 final_matrix <- cbind(Text = text_column, as.data.frame(divided_matrix))
-write.xlsx(final_matrix, "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
+write_xlsx(final_matrix, "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
 
 ###################
 # 2) TRANSPOSICIÓN: pivotar país como fila
 ###################
 ct_long <- final_matrix %>%
   mutate(across(-Text, as.numeric)) %>%
-  rename_with(~ str_replace_all(., fixed("CZECH_REPUBLIC"), "CZECHREPUBLIC")) %>%
+  rename_with(~ gsub("CZECH_REPUBLIC", "CZECHREPUBLIC", ., fixed = TRUE)) %>%
   rename_with(~ gsub("[0-9]", "", .)) %>%
   pivot_longer(
     cols = -Text,
@@ -85,5 +92,16 @@ df_final <- ct_long %>%
   filter(!is.na(Text) & Text != "") %>%
   arrange(Country, Text)
 
-write.xlsx(as.data.frame(df_final), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
+# Diagnóstico y recorte a [0, 1]
+cols_numericas <- names(df_final)[sapply(df_final, is.numeric)]
+n_mayores1 <- sum(df_final[, cols_numericas] > 1, na.rm = TRUE)
+n_menores0 <- sum(df_final[, cols_numericas] < 0, na.rm = TRUE)
+if (n_mayores1 > 0 || n_menores0 > 0) {
+  message("Aviso: ", n_mayores1, " celda(s) > 1 y ",
+          n_menores0, " celda(s) < 0 encontradas. Se recortan a [0, 1].")
+}
+df_final[, cols_numericas] <- lapply(df_final[, cols_numericas],
+                                     function(x) pmin(pmax(x, 0), 1))
+
+write_xlsx(as.data.frame(df_final), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
 
