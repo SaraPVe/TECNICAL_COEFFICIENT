@@ -9,6 +9,34 @@ suppressWarnings(suppressPackageStartupMessages({
   library(writexl)
 }))
 
+write_xlsx_output <- function(data, path) {
+  tryCatch(
+    {
+      write_xlsx(data, path)
+    },
+    error = function(error_condition) {
+      error_message <- conditionMessage(error_condition)
+      if (!grepl("permission denied|permissions error|Error creating output xlsx file",
+                 error_message, ignore.case = TRUE)) {
+        stop(error_condition)
+      }
+
+      file_name <- basename(path)
+      timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      fallback_path <- file.path(
+        dirname(path),
+        paste0(tools::file_path_sans_ext(file_name), "_", timestamp, ".xlsx")
+      )
+
+      write_xlsx(data, fallback_path)
+      message(
+        "No se pudo sobrescribir '", path,
+        "'. Se ha guardado una copia en '", fallback_path, "'."
+      )
+    }
+  )
+}
+
 ###################
 # CARGA DE DATOS
 ###################
@@ -37,7 +65,7 @@ divided_matrix <- sweep(numeric_matrix, 2, numeric_vector, "/")
 
 # Exportar matriz intermedia
 final_matrix <- cbind(Text = text_column, as.data.frame(divided_matrix))
-write_xlsx(final_matrix, "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
+write_xlsx_output(final_matrix, "./Coeficientes_tecnicos/Final_matrix_CT_1.xlsx")
 
 ###################
 # 2) TRANSPOSICIÓN: pivotar país como fila
@@ -94,6 +122,24 @@ df_final <- ct_long %>%
 
 # Diagnóstico y recorte a [0, 1]
 cols_numericas <- names(df_final)[sapply(df_final, is.numeric)]
+valores_negativos <- df_final %>%
+  mutate(Fila = seq_len(n())) %>%
+  pivot_longer(
+    cols = all_of(cols_numericas),
+    names_to = "Columna",
+    values_to = "Valor"
+  ) %>%
+  filter(Valor < 0) %>%
+  transmute(
+    Fila,
+    Pais = as.character(Country),
+    Sector = as.character(Text),
+    Columna,
+    Valor
+  )
+
+write_xlsx_output(valores_negativos, "./Coeficientes_tecnicos/Valores_negativos.xlsx")
+
 n_mayores1 <- sum(df_final[, cols_numericas] > 1, na.rm = TRUE)
 n_menores0 <- sum(df_final[, cols_numericas] < 0, na.rm = TRUE)
 if (n_mayores1 > 0 || n_menores0 > 0) {
@@ -103,5 +149,5 @@ if (n_mayores1 > 0 || n_menores0 > 0) {
 df_final[, cols_numericas] <- lapply(df_final[, cols_numericas],
                                      function(x) pmin(pmax(x, 0), 1))
 
-write_xlsx(as.data.frame(df_final), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
+write_xlsx_output(as.data.frame(df_final), "./Coeficientes_tecnicos/Tecnical coefficients final.xlsx")
 
