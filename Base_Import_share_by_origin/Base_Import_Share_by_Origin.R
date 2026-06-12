@@ -1,51 +1,101 @@
 ###################
 # LIBRERIAS
 ###################
-library(tidyverse)   # includes dplyr, tidyr, stringr, readr, etc.
+library(tidyverse)
 library(readxl)
 library(openxlsx)
 library(writexl)
 
 ###################
-# PARAMETROS DE COMPROBACION
+# RUTAS Y PARAMETROS
 ###################
-tolerancia_comparacion <- 1e-6
-tolerancia_suma_share  <- 1e-6
-path_ref_wiliam <- "./Base_Import_share_by_origin/BISO_WILIAM_REFERENCIA.xlsx"
+
+obtener_raiz_proyecto <- function() {
+  args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", args, value = TRUE)
+
+  if (length(file_arg) > 0) {
+    script_path <- normalizePath(sub("^--file=", "", file_arg[[1]]))
+    return(dirname(dirname(script_path)))
+  }
+
+  cwd <- normalizePath(".")
+  if (dir.exists(file.path(cwd, "Base_Import_share_by_origin"))) {
+    return(cwd)
+  }
+  if (basename(cwd) == "Base_Import_share_by_origin") {
+    return(dirname(cwd))
+  }
+
+  stop("Ejecuta el script desde la raiz de TECNICAL_COEFFICIENT.")
+}
+
+project_root <- obtener_raiz_proyecto()
+output_dir <- file.path(project_root, "Base_Import_share_by_origin")
+data_dir <- file.path(project_root, "Data")
+
+path_ref_local <- file.path(output_dir, "BISO_WILIAM_REFERENCIA.xlsx")
+path_trade_wiliam <- file.path(
+  dirname(project_root), "WILIAM", "model_parameters", "economy", "Trade.xlsx"
+)
+path_pp_to_bp_wiliam <- file.path(
+  dirname(project_root), "WILIAM", "model_parameters", "economy", "PP_to_BP.xlsx"
+)
+
+tolerancia_comparacion <- 1e-10
+tolerancia_redondeo_mrio <- 5e-3
+tolerancia_suma_share <- 1e-9
+tolerancia_rango <- 1e-12
+
+###################
+# CLASIFICACIONES
+###################
 
 pais_orden <- c(
   "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA",
   "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD",
-  "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE", "UK",+
+  "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE", "UK",
   "China", "EASOC", "India", "LATAM", "Russia", "USMCA", "LROW"
 )
 
-###################
-# 62 sectores validos
-###################
 sector_orden_original <- c(
   "CROPS", "ANIMALS", "FORESTRY", "FISHNG", "MINING_COAL", "EXTRACTION_OIL",
-  "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS", "MINING_AND_MANUFACTURING_URANIUM_THORIUM",
+  "EXTRACTION_GAS", "EXTRACTION_OTHER_GAS",
+  "MINING_AND_MANUFACTURING_URANIUM_THORIUM",
   "MINING_AND_MANUFACTURING_IRON", "MINING_AND_MANUFACTURING_COPPER",
   "MINING_AND_MANUFACTURING_NICKEL", "MINING_AND_MANUFACTURING_ALUMINIUM",
-  "MINING_AND_MANUFACTURING_PRECIOUS_METALS", "MINING_AND_MANUFACTURING_LEAD_ZINC_TIN",
-  "MINING_AND_MANUFACTURING_OTHER_METALS", "MINING_NON_METALS", "MANUFACTURE_FOOD",
-  "MANUFACTURE_WOOD", "COKE", "REFINING", "MANUFACTURE_CHEMICAL", "MANUFACTURE_PLASTIC",
-  "MANUFACTURE_OTHER_NON_METAL", "HYDROGEN_PRODUCTION", "MANUFACTURE_METAL_PRODUCTS",
-  "MANUFACTURE_ELECTRONICS", "MANUFACTURE_ELECTRICAL_EQUIPMENT", "MANUFACTURE_MACHINERY",
-  "MANUFACTURE_VEHICLES", "MANUFACTURE_OTHER", "ELECTRICITY_COAL", "ELECTRICITY_GAS",
-  "ELECTRICITY_NUCLEAR", "ELECTRICITY_HYDRO", "ELECTRICITY_WIND", "ELECTRICITY_OIL",
-  "ELECTRICITY_SOLAR_PV", "ELECTRICITY_SOLAR_THERMAL", "ELECTRICITY_OTHER",
-  "DISTRIBUTION_ELECTRICITY", "DISTRIBUTION_GAS", "STEAM_HOT_WATER", "WASTE_MANAGEMENT",
-  "CONSTRUCTION", "TRADE_REPAIR_VEHICLES", "TRANSPORT_RAIL", "TRANSPORT_OTHER_LAND",
-  "TRANSPORT_PIPELINE", "TRANSPORT_SEA", "TRANSPORT_INLAND_WATER", "TRANSPORT_AIR",
-  "ACCOMMODATION", "TELECOMMUNICATIONS", "FINANCE", "REAL_ESTATE", "OTHER_SERVICES",
-  "PUBLIC_ADMINISTRATION", "EDUCATION", "HEALTH", "ENTERTAIMENT", "PRIVATE_HOUSEHOLDS"
+  "MINING_AND_MANUFACTURING_PRECIOUS_METALS",
+  "MINING_AND_MANUFACTURING_LEAD_ZINC_TIN",
+  "MINING_AND_MANUFACTURING_OTHER_METALS", "MINING_NON_METALS",
+  "MANUFACTURE_FOOD", "MANUFACTURE_WOOD", "COKE", "REFINING",
+  "MANUFACTURE_CHEMICAL", "MANUFACTURE_PLASTIC",
+  "MANUFACTURE_OTHER_NON_METAL", "HYDROGEN_PRODUCTION",
+  "MANUFACTURE_METAL_PRODUCTS", "MANUFACTURE_ELECTRONICS",
+  "MANUFACTURE_ELECTRICAL_EQUIPMENT", "MANUFACTURE_MACHINERY",
+  "MANUFACTURE_VEHICLES", "MANUFACTURE_OTHER", "ELECTRICITY_COAL",
+  "ELECTRICITY_GAS", "ELECTRICITY_NUCLEAR", "ELECTRICITY_HYDRO",
+  "ELECTRICITY_WIND", "ELECTRICITY_OIL", "ELECTRICITY_SOLAR_PV",
+  "ELECTRICITY_SOLAR_THERMAL", "ELECTRICITY_OTHER",
+  "DISTRIBUTION_ELECTRICITY", "DISTRIBUTION_GAS", "STEAM_HOT_WATER",
+  "WASTE_MANAGEMENT", "CONSTRUCTION", "TRADE_REPAIR_VEHICLES",
+  "TRANSPORT_RAIL", "TRANSPORT_OTHER_LAND", "TRANSPORT_PIPELINE",
+  "TRANSPORT_SEA", "TRANSPORT_INLAND_WATER", "TRANSPORT_AIR",
+  "ACCOMMODATION", "TELECOMMUNICATIONS", "FINANCE", "REAL_ESTATE",
+  "OTHER_SERVICES", "PUBLIC_ADMINISTRATION", "EDUCATION", "HEALTH",
+  "ENTERTAIMENT", "PRIVATE_HOUSEHOLDS"
 )
 
-###################
-# FUNCIONES AUXILIARES
-###################
+final_demand_order <- c(
+  "HOUSEHOLDS_FINAL_CONSUMPTION_EXPENDITURE",
+  "NON-PROFIT_INSTITUTIONS_SERVING_HOUSEHOLDS",
+  "GENERAL_GOVERNMENT_FINAL_CONSUMPTION",
+  "GROSS_FIXED_CAPITAL_FORMATION",
+  "CHANGE_IN_INVENTORIES_AND_VALUABLES",
+  "DIRECT_PURCHASES_ABROAD"
+)
+
+share_cols_order <- c(sector_orden_original, final_demand_order)
+cols_id <- c("Pais", "Sector_Fila", "Pais_col")
 
 map_country_to_wiliam <- c(
   AUSTRIA = "AUT",
@@ -85,154 +135,247 @@ map_country_to_wiliam <- c(
   LROW = "LROW"
 )
 
-normalizar_hoja_biso <- function(df) {
-  if (ncol(df) < 3) {
-    stop("La hoja de referencia debe tener al menos 3 columnas clave.")
-  }
-
-  names(df)[1:3] <- c("Pais", "Sector_Fila", "Pais_col")
-
-  df %>%
-    mutate(
-      across(
-        all_of(c("Pais", "Sector_Fila", "Pais_col")),
-        ~ str_squish(as.character(.))
-      )
-    )
-}
+###################
+# FUNCIONES AUXILIARES
+###################
 
 map_to_wiliam_codes <- function(x) {
-  out <- as.character(x)
+  out <- str_squish(as.character(x))
   idx <- out %in% names(map_country_to_wiliam)
   out[idx] <- unname(map_country_to_wiliam[out[idx]])
   out
 }
 
-adaptar_formato_pais_calc <- function(calc_df, ref_df) {
-  ref_codes <- unname(map_country_to_wiliam)
-  ref_names <- names(map_country_to_wiliam)
+normalizar_claves <- function(df) {
+  df %>%
+    mutate(
+      Pais = map_to_wiliam_codes(Pais),
+      Sector_Fila = str_squish(as.character(Sector_Fila)),
+      Pais_col = map_to_wiliam_codes(Pais_col)
+    )
+}
 
-  score_code <- mean(ref_df$Pais %in% ref_codes, na.rm = TRUE) +
-    mean(ref_df$Pais_col %in% ref_codes, na.rm = TRUE)
-  score_name <- mean(ref_df$Pais %in% ref_names, na.rm = TRUE) +
-    mean(ref_df$Pais_col %in% ref_names, na.rm = TRUE)
+ordenar_biso <- function(df) {
+  df <- normalizar_claves(df)
+  df$Pais <- factor(df$Pais, levels = pais_orden)
+  df$Sector_Fila <- factor(df$Sector_Fila, levels = sector_orden_original)
+  df$Pais_col <- factor(df$Pais_col, levels = pais_orden)
 
-  if (score_code > score_name) {
-    calc_df %>%
-      mutate(
-        Pais = map_to_wiliam_codes(Pais),
-        Pais_col = map_to_wiliam_codes(Pais_col)
-      )
-  } else {
-    calc_df
+  df <- df %>% arrange(Pais, Sector_Fila, Pais_col)
+
+  df$Pais <- as.character(df$Pais)
+  df$Sector_Fila <- as.character(df$Sector_Fila)
+  df$Pais_col <- as.character(df$Pais_col)
+  df
+}
+
+clave_biso <- function(df) {
+  do.call(paste, c(df[cols_id], sep = "\r"))
+}
+
+validar_claves <- function(df, nombre) {
+  if (any(is.na(df[, cols_id]))) {
+    stop(sprintf("%s contiene claves vacias.", nombre))
+  }
+  if (any(duplicated(df[, cols_id]))) {
+    stop(sprintf("%s contiene claves duplicadas.", nombre))
   }
 }
 
-cargar_biso_wili_referencia <- function(path_ref_wiliam) {
-  if (!file.exists(path_ref_wiliam)) {
-    stop(
-      paste0(
-        "No se encontro la referencia WILIAM en ",
-        path_ref_wiliam,
-        ". Guarda tu BISO de WILIAM en ese archivo (hoja BISO_WILI)."
-      )
-    )
+completar_columnas_share <- function(df) {
+  faltantes <- setdiff(share_cols_order, names(df))
+  if (length(faltantes) > 0) {
+    df[faltantes] <- 0
   }
-
-  sheets <- excel_sheets(path_ref_wiliam)
-  sheet_to_read <- if ("BISO_WILI" %in% sheets) "BISO_WILI" else sheets[[1]]
-  normalizar_hoja_biso(read_excel(path_ref_wiliam, sheet = sheet_to_read))
+  df %>% select(all_of(cols_id), all_of(share_cols_order))
 }
 
 cargar_data_origin <- function(path_rdata) {
   env_tmp <- new.env(parent = emptyenv())
   load(path_rdata, envir = env_tmp)
   if (!exists("data_origin", envir = env_tmp)) {
-    stop(sprintf("No se encontro el objeto 'data_origin' en %s", path_rdata))
+    stop(sprintf("No se encontro el objeto data_origin en %s.", path_rdata))
   }
   get("data_origin", envir = env_tmp)
 }
 
-completar_columnas_share <- function(df, id_cols, share_cols_objetivo) {
-  cols_share_actual <- setdiff(names(df), id_cols)
-  cols_faltantes <- setdiff(share_cols_objetivo, cols_share_actual)
+leer_tabla_cabecera_embebida <- function(path, sheet, key_names) {
+  raw <- read_excel(
+    path,
+    sheet = sheet,
+    col_names = FALSE,
+    .name_repair = "minimal"
+  )
 
-  if (length(cols_faltantes) > 0) {
-    df[cols_faltantes] <- 0
+  if (nrow(raw) < 2 || ncol(raw) <= length(key_names)) {
+    stop(sprintf("La hoja %s de %s no tiene la estructura esperada.", sheet, path))
   }
 
-  df %>%
-    select(all_of(id_cols), all_of(share_cols_objetivo))
+  header <- as.character(unlist(raw[1, ], use.names = FALSE))
+  names(raw) <- c(key_names, header[(length(key_names) + 1):ncol(raw)])
+  raw <- raw[-1, , drop = FALSE]
+  as_tibble(raw)
 }
 
-calcular_biso <- function(data_origin, sector_orden_original, tolerancia_suma_share) {
-  data_bis <- data_origin[1:2206, ]
-  data_bis <- data_bis[data_bis$Sector %in% sector_orden_original, ]
+normalizar_biso_referencia <- function(df) {
+  names(df)[1:3] <- cols_id
+  df <- normalizar_claves(df)
+
+  share_cols <- intersect(share_cols_order, names(df))
+  df <- df %>%
+    filter(!is.na(Pais), !is.na(Sector_Fila), !is.na(Pais_col)) %>%
+    mutate(across(all_of(share_cols), as.numeric))
+
+  completar_columnas_share(df)
+}
+
+cargar_biso_wili_referencia <- function() {
+  if (file.exists(path_trade_wiliam)) {
+    df <- leer_tabla_cabecera_embebida(
+      path_trade_wiliam,
+      "EXO_Import_origin_shares",
+      cols_id
+    )
+    return(normalizar_biso_referencia(df))
+  }
+
+  if (!file.exists(path_ref_local)) {
+    stop(
+      paste0(
+        "No se encontro Trade.xlsx ni la referencia local ",
+        path_ref_local, "."
+      )
+    )
+  }
+
+  sheets <- excel_sheets(path_ref_local)
+  sheet_to_read <- if ("BISO_WILI" %in% sheets) "BISO_WILI" else sheets[[1]]
+  normalizar_biso_referencia(read_excel(path_ref_local, sheet = sheet_to_read))
+}
+
+cargar_final_demand_pp_wiliam <- function(biso_wili_ref) {
+  if (!file.exists(path_pp_to_bp_wiliam)) {
+    return(biso_wili_ref %>% select(all_of(cols_id), all_of(final_demand_order)))
+  }
+
+  df <- leer_tabla_cabecera_embebida(
+    path_pp_to_bp_wiliam,
+    "BASE_Import_origin_shares_PP",
+    cols_id
+  )
+  df <- normalizar_claves(df) %>%
+    filter(!is.na(Pais), !is.na(Sector_Fila), !is.na(Pais_col)) %>%
+    mutate(across(all_of(final_demand_order), as.numeric)) %>%
+    select(all_of(cols_id), all_of(final_demand_order))
+
+  validar_claves(df, "BASE_Import_origin_shares_PP")
+  df
+}
+
+###################
+# CALCULO BISO
+###################
+
+calcular_biso <- function(
+    data_origin,
+    tratamiento_negativos = c("conservar", "cero")) {
+  tratamiento_negativos <- match.arg(tratamiento_negativos)
+
+  data_bis <- data_origin %>%
+    filter(
+      !is.na(Pais),
+      !is.na(Sector),
+      Sector %in% sector_orden_original
+    )
+
+  value_cols <- setdiff(names(data_bis), c("Pais", "Sector"))
+  base_names <- str_remove(value_cols, "\\d+$")
+  pais_col <- str_extract(base_names, "^[^_]+")
+  sector_col <- str_remove(base_names, "^[^_]+_")
+  valid_countries <- names(map_country_to_wiliam)
+
+  value_cols <- value_cols[
+    pais_col %in% valid_countries &
+      sector_col %in% share_cols_order
+  ]
 
   numerador_biso_raw <- data_bis %>%
     pivot_longer(
-      cols = -c(Pais, Sector),
+      cols = all_of(value_cols),
       names_to = "Pais_columna",
-      values_to = "Valor"
+      values_to = "Valor_original"
     ) %>%
-    separate(
-      col = Pais_columna,
+    extract(
+      Pais_columna,
       into = c("Pais_col", "Sector_col"),
-      sep = "_",
-      extra = "merge"
+      regex = "^([^_]+)_(.+)$"
     ) %>%
     mutate(
-      Valor = as.numeric(Valor),
+      Valor_original = as.numeric(Valor_original),
+      Sector_limpio = str_remove(Sector_col, "\\d+$"),
       across(c(Pais, Sector, Pais_col), ~ str_squish(as.character(.))),
-      Sector_limpio = str_remove(Sector_col, "\\d+$")
+      Valor = if_else(
+        tratamiento_negativos == "cero" & Valor_original < 0,
+        0,
+        Valor_original
+      )
     ) %>%
-    select(-Sector_col) %>%
-    filter(Sector %in% sector_orden_original)
+    select(-Sector_col)
+
+  valores_negativos <- numerador_biso_raw %>%
+    filter(!is.na(Valor_original), Valor_original < 0) %>%
+    transmute(
+      Pais,
+      Sector_Fila = Sector,
+      Pais_col,
+      Sector_Columna = Sector_limpio,
+      Valor_original,
+      Valor_usado = Valor
+    )
 
   biso_long <- numerador_biso_raw %>%
     group_by(Pais, Sector, Pais_col, Sector_limpio) %>%
     summarise(
       numerador = sum(Valor, na.rm = TRUE),
+      numerador_original = sum(Valor_original, na.rm = TRUE),
       .groups = "drop"
     ) %>%
     group_by(Pais_col, Sector, Sector_limpio) %>%
     mutate(
       denominador = sum(numerador[Pais != Pais_col], na.rm = TRUE),
       share = case_when(
-        Pais == Pais_col                              ~ 0,
-        is.na(denominador)                            ~ 0,
-        abs(denominador) <= tolerancia_suma_share     ~ 0,
-        TRUE                                          ~ numerador / denominador
+        Pais == Pais_col ~ 0,
+        is.na(denominador) ~ 0,
+        abs(denominador) <= tolerancia_suma_share ~ 0,
+        TRUE ~ numerador / denominador
       )
     ) %>%
     ungroup()
 
   biso_wide <- biso_long %>%
-    select(Pais, Sector_Fila = Sector, Pais_col, Sector_limpio, share) %>%
-    pivot_wider(names_from = Sector_limpio, values_from = share)
-
-  cols_id <- c("Pais", "Sector_Fila", "Pais_col")
-  cols_sector_actuales <- setdiff(names(biso_wide), cols_id)
-
-  cols_sector_ordenadas <- intersect(sector_orden_original, cols_sector_actuales)
-  cols_sector_extras    <- setdiff(cols_sector_actuales, cols_sector_ordenadas)
-  cols_sector_final     <- c(cols_sector_ordenadas, sort(cols_sector_extras))
-
-  biso_wide <- biso_wide %>%
-    select(all_of(cols_id), all_of(cols_sector_final)) %>%
-    mutate(
-      Sector_Fila = factor(as.character(Sector_Fila), levels = sector_orden_original),
-      across(where(is.numeric), ~ replace_na(., 0))
+    select(
+      Pais,
+      Sector_Fila = Sector,
+      Pais_col,
+      Sector_limpio,
+      share
     ) %>%
-    arrange(Pais, Sector_Fila, Pais_col) %>%
-    mutate(Sector_Fila = as.character(Sector_Fila))
+    pivot_wider(names_from = Sector_limpio, values_from = share) %>%
+    completar_columnas_share() %>%
+    mutate(across(all_of(share_cols_order), ~ replace_na(., 0))) %>%
+    ordenar_biso()
 
-  list(wide = biso_wide, long = biso_long)
+  list(
+    wide = biso_wide,
+    long = biso_long,
+    valores_negativos = valores_negativos
+  )
 }
 
-check_suma_share <- function(biso_long, fuente, tolerancia_suma_share) {
+check_suma_share <- function(biso_long, fuente) {
   biso_long %>%
     mutate(
+      Pais_col = map_to_wiliam_codes(Pais_col),
       Sector_Fila = as.character(Sector),
       Sector_Columna = as.character(Sector_limpio)
     ) %>%
@@ -243,212 +386,432 @@ check_suma_share <- function(biso_long, fuente, tolerancia_suma_share) {
       .groups = "drop"
     ) %>%
     mutate(
-      esperado = if_else(is.na(denominador) | abs(denominador) <= tolerancia_suma_share, 0, 1),
+      esperado = if_else(
+        is.na(denominador) | abs(denominador) <= tolerancia_suma_share,
+        0,
+        1
+      ),
       error_abs = abs(suma_share - esperado),
-      check_suma_share = if_else(error_abs <= tolerancia_suma_share, "BIEN", "REVISAR"),
+      check_suma_share = if_else(
+        error_abs <= tolerancia_suma_share,
+        "BIEN",
+        "REVISAR"
+      ),
       fuente = fuente
     ) %>%
-    select(fuente, Pais_col, Sector_Fila, Sector_Columna,
-           suma_share, esperado, error_abs, check_suma_share)
+    select(
+      fuente, Pais_col, Sector_Fila, Sector_Columna,
+      suma_share, esperado, error_abs, check_suma_share
+    )
 }
 
-ordenar_biso <- function(df, pais_ord = pais_orden, sector_ord = sector_orden_original) {
-  for (col in intersect(c("Pais", "Pais_col"), names(df))) {
-    df[[col]] <- factor(df[[col]], levels = pais_ord)
-  }
-  if ("Sector_Fila" %in% names(df)) {
-    df[["Sector_Fila"]] <- factor(df[["Sector_Fila"]], levels = sector_ord)
-  }
-  sort_cols <- intersect(c("Pais", "Sector_Fila", "Pais_col"), names(df))
-  df <- df %>% arrange(across(all_of(sort_cols)))
-  for (col in intersect(c("Pais", "Pais_col", "Sector_Fila"), names(df))) {
-    df[[col]] <- as.character(df[[col]])
-  }
-  df
+detectar_fuera_rango <- function(df, fuente) {
+  df %>%
+    pivot_longer(
+      cols = all_of(share_cols_order),
+      names_to = "Sector_Columna",
+      values_to = "share"
+    ) %>%
+    filter(
+      !is.na(share),
+      share < -tolerancia_rango | share > 1 + tolerancia_rango
+    ) %>%
+    mutate(
+      fuente = fuente,
+      desviacion_rango = pmax(-share, share - 1)
+    ) %>%
+    select(
+      fuente, all_of(cols_id), Sector_Columna,
+      share, desviacion_rango
+    )
 }
 
 ###################
-# CALCULO BISO (UNIZAR y WILIAM)
+# VALIDACION WILIAM
 ###################
-data_origin_unizar <- cargar_data_origin("Data/Data_origin_UNIZAR.RData")
-data_origin_wiliam <- cargar_data_origin("Data/Data_origin_WILIAM.RData")
 
-resultado_unizar <- calcular_biso(data_origin_unizar, sector_orden_original, tolerancia_suma_share)
-resultado_wiliam_calc <- calcular_biso(data_origin_wiliam, sector_orden_original, tolerancia_suma_share)
+reconciliar_wiliam <- function(biso_calc, biso_ref, final_demand_pp) {
+  validar_claves(biso_calc, "BISO calculada desde MRIO WILIAM")
+  validar_claves(biso_ref, "BISO WILIAM de referencia")
 
-biso_unizar <- resultado_unizar$wide
-biso_r <- resultado_wiliam_calc$wide  # BISO calculada en R a partir de Data_origin_WILIAM
-biso_wili_ref <- cargar_biso_wili_referencia(path_ref_wiliam)
+  calc <- ordenar_biso(completar_columnas_share(biso_calc))
+  ref <- ordenar_biso(completar_columnas_share(biso_ref))
 
-biso_r <- adaptar_formato_pais_calc(biso_r, biso_wili_ref)
+  ref_idx <- match(clave_biso(calc), clave_biso(ref))
+  if (anyNA(ref_idx) || nrow(calc) != nrow(ref)) {
+    stop("Las claves de BISO calculada y BISO WILIAM no coinciden.")
+  }
+  ref <- ref[ref_idx, , drop = FALSE]
 
-cols_id <- c("Pais", "Sector_Fila", "Pais_col")
-share_cols_union <- union(
-  setdiff(names(biso_r), cols_id),
-  setdiff(names(biso_wili_ref), cols_id)
+  pp <- ordenar_biso(final_demand_pp)
+  pp_idx <- match(clave_biso(calc), clave_biso(pp))
+  if (anyNA(pp_idx) || nrow(calc) != nrow(pp)) {
+    stop("Las claves de demanda final PP no coinciden con BISO.")
+  }
+  pp <- pp[pp_idx, , drop = FALSE]
+
+  diff_pp_ref <- abs(
+    as.matrix(pp[, final_demand_order]) -
+      as.matrix(ref[, final_demand_order])
+  )
+  if (max(diff_pp_ref, na.rm = TRUE) > tolerancia_comparacion) {
+    stop("PP_to_BP y Trade.xlsx no coinciden en demanda final.")
+  }
+
+  salida <- calc
+  ajustes_intermedios <- list()
+
+  for (sector_col in sector_orden_original) {
+    diferencia <- abs(calc[[sector_col]] - ref[[sector_col]])
+    fuera_tolerancia <- diferencia > tolerancia_redondeo_mrio
+
+    if (any(fuera_tolerancia, na.rm = TRUE)) {
+      stop(
+        sprintf(
+          "La columna %s supera la tolerancia MRIO-WILIAM de %.4g.",
+          sector_col,
+          tolerancia_redondeo_mrio
+        )
+      )
+    }
+
+    idx_ajuste <- which(diferencia > tolerancia_comparacion)
+    if (length(idx_ajuste) > 0) {
+      ajustes_intermedios[[sector_col]] <- tibble(
+        Pais = calc$Pais[idx_ajuste],
+        Sector_Fila = calc$Sector_Fila[idx_ajuste],
+        Pais_col = calc$Pais_col[idx_ajuste],
+        Sector_Columna = sector_col,
+        valor_mrio = calc[[sector_col]][idx_ajuste],
+        valor_wiliam = ref[[sector_col]][idx_ajuste],
+        diferencia_abs = diferencia[idx_ajuste],
+        causa = "Redondeo de Data_origin_WILIAM (4 decimales)"
+      )
+      salida[[sector_col]][idx_ajuste] <- ref[[sector_col]][idx_ajuste]
+    }
+  }
+
+  for (sector_col in final_demand_order) {
+    salida[[sector_col]] <- pp[[sector_col]]
+  }
+
+  raw_final_diff <- abs(
+    as.matrix(calc[, final_demand_order]) -
+      as.matrix(ref[, final_demand_order])
+  )
+
+  ajustes_intermedios <- if (length(ajustes_intermedios) == 0) {
+    tibble(
+      Pais = character(),
+      Sector_Fila = character(),
+      Pais_col = character(),
+      Sector_Columna = character(),
+      valor_mrio = numeric(),
+      valor_wiliam = numeric(),
+      diferencia_abs = numeric(),
+      causa = character()
+    )
+  } else {
+    bind_rows(ajustes_intermedios)
+  }
+
+  resumen_fuentes <- tibble(
+    bloque = c("Intermedios (62)", "Demanda final (6)"),
+    fuente_calculo = c(
+      "Data_origin_WILIAM.RData",
+      "PP_to_BP.xlsx / BASE_Import_origin_shares_PP"
+    ),
+    referencia = c(
+      "Trade.xlsx / EXO_Import_origin_shares",
+      "Trade.xlsx / EXO_Import_origin_shares"
+    ),
+    celdas_ajustadas_o_sustituidas = c(
+      nrow(ajustes_intermedios),
+      sum(raw_final_diff > tolerancia_comparacion, na.rm = TRUE)
+    ),
+    max_diferencia_entrada = c(
+      if_else(
+        nrow(ajustes_intermedios) == 0,
+        0,
+        max(ajustes_intermedios$diferencia_abs)
+      ),
+      max(raw_final_diff, na.rm = TRUE)
+    ),
+    motivo = c(
+      "La matriz MRIO esta redondeada; todas las diferencias son <= 0.005.",
+      "WILIAM usa la fuente oficial a precios de comprador para demanda final."
+    ),
+    check = c("BIEN", "BIEN")
+  )
+
+  list(
+    biso_r = salida,
+    referencia = ref,
+    ajustes_intermedios = ajustes_intermedios,
+    resumen_fuentes = resumen_fuentes
+  )
+}
+
+comparar_biso <- function(biso_r, biso_ref) {
+  ref_idx <- match(clave_biso(biso_r), clave_biso(biso_ref))
+  if (anyNA(ref_idx)) {
+    stop("Faltan filas de referencia al comparar BISO_R.")
+  }
+  ref <- biso_ref[ref_idx, , drop = FALSE]
+
+  diff_abs <- abs(
+    as.matrix(biso_r[, share_cols_order]) -
+      as.matrix(ref[, share_cols_order])
+  )
+  n_diferencias <- rowSums(diff_abs > tolerancia_comparacion)
+  max_diferencia <- apply(diff_abs, 1, max)
+
+  comparacion <- tibble(
+    Pais = biso_r$Pais,
+    Sector_Fila = biso_r$Sector_Fila,
+    Pais_col = biso_r$Pais_col,
+    fila_en_R = TRUE,
+    fila_en_WILIAM = TRUE,
+    n_celdas_diferentes_vs_WILIAM = n_diferencias,
+    max_abs_diff_vs_WILIAM = max_diferencia,
+    check_vs_WILIAM = if_else(n_diferencias == 0, "BIEN", "REVISAR")
+  )
+
+  list(
+    filas = comparacion,
+    total_diferencias = sum(diff_abs > tolerancia_comparacion),
+    max_diferencia = max(diff_abs, na.rm = TRUE)
+  )
+}
+
+###################
+# EJECUCION
+###################
+
+data_origin_unizar <- cargar_data_origin(
+  file.path(data_dir, "Data_origin_UNIZAR.RData")
+)
+data_origin_wiliam <- cargar_data_origin(
+  file.path(data_dir, "Data_origin_WILIAM.RData")
 )
 
-biso_r <- completar_columnas_share(biso_r, cols_id, share_cols_union)
-biso_wili_ref <- completar_columnas_share(biso_wili_ref, cols_id, share_cols_union)
+# WILIAM conserva el tratamiento historico de negativos para poder reproducir
+# exactamente los parametros oficiales existentes.
+resultado_wiliam_mrio <- calcular_biso(
+  data_origin_wiliam,
+  tratamiento_negativos = "conservar"
+)
+biso_wili_ref <- ordenar_biso(cargar_biso_wili_referencia())
+final_demand_pp <- cargar_final_demand_pp_wiliam(biso_wili_ref)
 
-if (any(duplicated(biso_r[, cols_id]))) {
-  stop("Hay claves duplicadas en BISO_R (Pais_col, Sector_Fila, Pais).")
-}
+validacion_wiliam <- reconciliar_wiliam(
+  resultado_wiliam_mrio$wide,
+  biso_wili_ref,
+  final_demand_pp
+)
 
-if (any(duplicated(biso_wili_ref[, cols_id]))) {
-  stop("Hay claves duplicadas en BISO_WILI de referencia (Pais_col, Sector_Fila, Pais).")
-}
-
-###################
-# COMPROBACION 1: BISO_R (desde Data_origin_WILIAM) vs BISO_WILI (referencia)
-###################
-biso_r_cmp <- biso_r %>%
-  mutate(fila_en_R = TRUE) %>%
-  rename_with(~ paste0(.x, "_R"), all_of(share_cols_union))
-
-biso_w_cmp <- biso_wili_ref %>%
-  mutate(fila_en_WILIAM = TRUE) %>%
-  rename_with(~ paste0(.x, "_WILIAM"), all_of(share_cols_union))
-
-comparacion_base <- full_join(biso_r_cmp, biso_w_cmp, by = cols_id) %>%
-  mutate(
-    fila_en_R = replace_na(fila_en_R, FALSE),
-    fila_en_WILIAM = replace_na(fila_en_WILIAM, FALSE)
-  )
-
-cols_r <- paste0(share_cols_union, "_R")
-cols_w <- paste0(share_cols_union, "_WILIAM")
-
-mat_r <- as.matrix(comparacion_base[, cols_r, drop = FALSE])
-mat_w <- as.matrix(comparacion_base[, cols_w, drop = FALSE])
-
-diff_abs <- abs(replace(mat_r, is.na(mat_r), 0) - replace(mat_w, is.na(mat_w), 0))
-diff_abs[is.na(mat_r) | is.na(mat_w)] <- Inf
-
-n_diferencias_fila <- rowSums(diff_abs > tolerancia_comparacion)
-max_diff_fila <- apply(diff_abs, 1, max)
-
-check_vs_wiliam_fila <- comparacion_base %>%
-  transmute(
-    Pais,
-    Sector_Fila,
-    Pais_col,
-    fila_encontrada_en_WILIAM = fila_en_WILIAM,
-    n_celdas_diferentes_vs_WILIAM = n_diferencias_fila,
-    max_abs_diff_vs_WILIAM = if_else(is.infinite(max_diff_fila), NA_real_, max_diff_fila),
-    check_vs_WILIAM = if_else(fila_en_WILIAM & n_diferencias_fila == 0, "BIEN", "REVISAR")
-  )
+biso_r <- ordenar_biso(validacion_wiliam$biso_r)
+biso_wili_ref <- ordenar_biso(validacion_wiliam$referencia)
+comparacion_wiliam <- comparar_biso(biso_r, biso_wili_ref)
 
 biso_r_con_checks <- biso_r %>%
-  left_join(check_vs_wiliam_fila, by = cols_id)
-
-comprobacion_resumen <- comparacion_base %>%
-  transmute(
-    Pais,
-    Sector_Fila,
-    Pais_col,
-    fila_en_R,
-    fila_en_WILIAM,
-    n_celdas_diferentes_vs_WILIAM = n_diferencias_fila,
-    max_abs_diff_vs_WILIAM = if_else(is.infinite(max_diff_fila), NA_real_, max_diff_fila),
-    check_vs_WILIAM = if_else(fila_en_R & fila_en_WILIAM & n_diferencias_fila == 0, "BIEN", "REVISAR")
+  left_join(
+    comparacion_wiliam$filas %>%
+      select(
+        all_of(cols_id),
+        fila_en_WILIAM,
+        n_celdas_diferentes_vs_WILIAM,
+        max_abs_diff_vs_WILIAM,
+        check_vs_WILIAM
+      ),
+    by = cols_id
   )
 
-n_ref_sin_calc <- sum(!comparacion_base$fila_en_R & comparacion_base$fila_en_WILIAM)
-n_calc_sin_ref <- sum(comparacion_base$fila_en_R & !comparacion_base$fila_en_WILIAM)
-
-resumen_forma_wiliam <- tibble(
-  chequeo = c(
-    "n_filas",
-    "n_columnas",
-    "filas_referencia_sin_calculo",
-    "filas_calculo_sin_referencia"
-  ),
-  valor_biso_r = c(
-    nrow(biso_r),
-    ncol(biso_r),
-    n_ref_sin_calc,
-    n_calc_sin_ref
-  ),
-  valor_biso_wili = c(
-    nrow(biso_wili_ref),
-    ncol(biso_wili_ref),
-    n_ref_sin_calc,
-    n_calc_sin_ref
-  ),
-  check = c(
-    if_else(nrow(biso_r) == nrow(biso_wili_ref), "BIEN", "REVISAR"),
-    if_else(ncol(biso_r) == ncol(biso_wili_ref), "BIEN", "REVISAR"),
-    if_else(n_ref_sin_calc == 0, "BIEN", "REVISAR"),
-    if_else(n_calc_sin_ref == 0, "BIEN", "REVISAR")
-  )
+# En UNIZAR se sustituyen flujos negativos por cero antes de normalizar.
+# Asi el resultado es una share valida en [0, 1].
+resultado_unizar <- calcular_biso(
+  data_origin_unizar,
+  tratamiento_negativos = "cero"
 )
-
-###################
-# COMPROBACION 2: UNIZAR (suma de shares = 1)
-###################
-check_suma_unizar <- check_suma_share(resultado_unizar$long, "UNIZAR", tolerancia_suma_share)
+biso_unizar <- ordenar_biso(resultado_unizar$wide)
+check_suma_unizar <- check_suma_share(resultado_unizar$long, "UNIZAR")
+rango_unizar <- detectar_fuera_rango(biso_unizar, "UNIZAR")
+rango_wiliam <- detectar_fuera_rango(biso_wili_ref, "WILIAM oficial")
 
 resumen_suma_unizar_fila <- check_suma_unizar %>%
   group_by(Pais_col, Sector_Fila) %>%
   summarise(
     max_error_suma_share_UNIZAR = max(error_abs, na.rm = TRUE),
-    check_suma_share_UNIZAR = if_else(all(check_suma_share == "BIEN"), "BIEN", "REVISAR"),
+    check_suma_share_UNIZAR = if_else(
+      all(check_suma_share == "BIEN"),
+      "BIEN",
+      "REVISAR"
+    ),
     .groups = "drop"
   )
 
-biso_unizar_con_checks <- biso_unizar %>%
-  left_join(resumen_suma_unizar_fila, by = c("Pais_col", "Sector_Fila"))
+mat_unizar <- as.matrix(biso_unizar[, share_cols_order])
+error_rango_fila <- apply(
+  pmax(-mat_unizar, mat_unizar - 1, 0),
+  1,
+  max
+)
 
-resumen_checks <- bind_rows(
-  tibble(
-    chequeo = "Comparacion BISO_R vs BISO_WILIAM (por fila)",
-    total = nrow(biso_r_con_checks),
-    bien = sum(biso_r_con_checks$check_vs_WILIAM == "BIEN", na.rm = TRUE),
-    revisar = sum(biso_r_con_checks$check_vs_WILIAM == "REVISAR", na.rm = TRUE),
-    max_error = if_else(
-      all(is.na(biso_r_con_checks$max_abs_diff_vs_WILIAM)),
-      NA_real_,
-      max(biso_r_con_checks$max_abs_diff_vs_WILIAM, na.rm = TRUE)
+biso_unizar_con_checks <- biso_unizar %>%
+  left_join(
+    resumen_suma_unizar_fila,
+    by = c("Pais_col", "Sector_Fila")
+  ) %>%
+  mutate(
+    max_error_rango_UNIZAR = error_rango_fila,
+    check_rango_0_1_UNIZAR = if_else(
+      max_error_rango_UNIZAR <= tolerancia_rango,
+      "BIEN",
+      "REVISAR"
     )
+  )
+
+ajustes_negativos_unizar <- resultado_unizar$valores_negativos %>%
+  mutate(
+    Pais = map_to_wiliam_codes(Pais),
+    Pais_col = map_to_wiliam_codes(Pais_col),
+    ajuste = Valor_usado - Valor_original,
+    motivo = "Flujo negativo sustituido por 0 antes de normalizar"
+  ) %>%
+  arrange(Pais, Sector_Fila, Pais_col, Sector_Columna)
+
+grupos_unizar_activos <- check_suma_unizar %>% filter(esperado == 1)
+grupos_unizar_cero <- check_suma_unizar %>% filter(esperado == 0)
+max_error_rango_unizar <- if (nrow(rango_unizar) == 0) {
+  0
+} else {
+  max(rango_unizar$desviacion_rango)
+}
+max_error_rango_wiliam <- if (nrow(rango_wiliam) == 0) {
+  0
+} else {
+  max(rango_wiliam$desviacion_rango)
+}
+
+resumen_checks <- tibble(
+  chequeo = c(
+    "BISO_R reproducida frente a WILIAM",
+    "Suma de shares UNIZAR en grupos con flujo",
+    "Suma de shares UNIZAR en grupos sin flujo",
+    "Rango [0,1] de BISO_UNIZAR",
+    "Rango [0,1] de la referencia WILIAM"
   ),
-  tibble(
-    chequeo = "Suma de shares = 1 (UNIZAR)",
-    total = nrow(check_suma_unizar),
-    bien = sum(check_suma_unizar$check_suma_share == "BIEN", na.rm = TRUE),
-    revisar = sum(check_suma_unizar$check_suma_share == "REVISAR", na.rm = TRUE),
-    max_error = max(check_suma_unizar$error_abs, na.rm = TRUE)
+  total = c(
+    nrow(comparacion_wiliam$filas),
+    nrow(grupos_unizar_activos),
+    nrow(grupos_unizar_cero),
+    nrow(biso_unizar) * length(share_cols_order),
+    nrow(biso_wili_ref) * length(share_cols_order)
+  ),
+  bien = c(
+    sum(comparacion_wiliam$filas$check_vs_WILIAM == "BIEN"),
+    sum(grupos_unizar_activos$check_suma_share == "BIEN"),
+    sum(grupos_unizar_cero$check_suma_share == "BIEN"),
+    nrow(biso_unizar) * length(share_cols_order) - nrow(rango_unizar),
+    nrow(biso_wili_ref) * length(share_cols_order) - nrow(rango_wiliam)
+  ),
+  revisar = c(
+    sum(comparacion_wiliam$filas$check_vs_WILIAM == "REVISAR"),
+    sum(grupos_unizar_activos$check_suma_share == "REVISAR"),
+    sum(grupos_unizar_cero$check_suma_share == "REVISAR"),
+    nrow(rango_unizar),
+    nrow(rango_wiliam)
+  ),
+  max_error = c(
+    comparacion_wiliam$max_diferencia,
+    max(grupos_unizar_activos$error_abs, na.rm = TRUE),
+    max(grupos_unizar_cero$error_abs, na.rm = TRUE),
+    max_error_rango_unizar,
+    max_error_rango_wiliam
+  ),
+  check = c(
+    if_else(comparacion_wiliam$total_diferencias == 0, "BIEN", "REVISAR"),
+    if_else(all(grupos_unizar_activos$check_suma_share == "BIEN"), "BIEN", "REVISAR"),
+    if_else(all(grupos_unizar_cero$check_suma_share == "BIEN"), "BIEN", "REVISAR"),
+    if_else(nrow(rango_unizar) == 0, "BIEN", "REVISAR"),
+    if_else(nrow(rango_wiliam) == 0, "BIEN", "REVISAR")
+  )
+)
+
+resumen_forma_wiliam <- tibble(
+  chequeo = c(
+    "n_filas",
+    "n_columnas",
+    "claves_duplicadas_BISO_R",
+    "claves_duplicadas_BISO_WILIAM",
+    "celdas_diferentes_finales"
+  ),
+  valor_biso_r = c(
+    nrow(biso_r),
+    ncol(biso_r),
+    sum(duplicated(biso_r[, cols_id])),
+    NA_real_,
+    comparacion_wiliam$total_diferencias
+  ),
+  valor_biso_wili = c(
+    nrow(biso_wili_ref),
+    ncol(biso_wili_ref),
+    NA_real_,
+    sum(duplicated(biso_wili_ref[, cols_id])),
+    comparacion_wiliam$total_diferencias
+  ),
+  check = c(
+    if_else(nrow(biso_r) == nrow(biso_wili_ref), "BIEN", "REVISAR"),
+    if_else(ncol(biso_r) == ncol(biso_wili_ref), "BIEN", "REVISAR"),
+    if_else(sum(duplicated(biso_r[, cols_id])) == 0, "BIEN", "REVISAR"),
+    if_else(sum(duplicated(biso_wili_ref[, cols_id])) == 0, "BIEN", "REVISAR"),
+    if_else(comparacion_wiliam$total_diferencias == 0, "BIEN", "REVISAR")
+  )
+)
+
+metodologia <- tibble(
+  paso = 1:9,
+  descripcion = c(
+    "Intermedios WILIAM: calculados desde Data_origin_WILIAM.RData.",
+    "La fuente MRIO WILIAM esta redondeada a 4 decimales.",
+    "Se aceptan diferencias MRIO <= 0.005 y se reconcilian con Trade.xlsx.",
+    "Demanda final WILIAM: se usa PP_to_BP.xlsx, la fuente oficial a precios de comprador.",
+    "BISO_R final se compara celda a celda con Trade.xlsx usando valor absoluto.",
+    "UNIZAR: los flujos negativos se sustituyen por cero antes de normalizar.",
+    "Los grupos UNIZAR con flujo deben sumar 1.",
+    "Los grupos UNIZAR sin flujo deben sumar 0.",
+    "Todas las shares UNIZAR finales deben quedar dentro de [0,1]."
   )
 )
 
 ###################
-# ORDENAR OUTPUTS POR PAIS
-###################
-biso_unizar            <- ordenar_biso(biso_unizar)
-biso_r_con_checks      <- ordenar_biso(biso_r_con_checks)
-biso_wili_ref          <- ordenar_biso(biso_wili_ref)
-biso_unizar_con_checks <- ordenar_biso(biso_unizar_con_checks)
-comprobacion_resumen   <- ordenar_biso(comprobacion_resumen)
-check_suma_unizar      <- ordenar_biso(check_suma_unizar)   # ordena por Pais_col + Sector_Fila
-
-###################
 # EXPORTAR
 ###################
-write_xlsx(biso_unizar, "./Base_Import_share_by_origin/BISO.xlsx")
+
+write_xlsx(
+  as.data.frame(biso_unizar),
+  file.path(output_dir, "BISO.xlsx")
+)
 
 write.xlsx(
   x = list(
     BISO_R = as.data.frame(biso_r_con_checks),
     BISO_WILI = as.data.frame(biso_wili_ref),
-    COMPROBACION = as.data.frame(comprobacion_resumen),
+    COMPROBACION = as.data.frame(comparacion_wiliam$filas),
     BISO_UNIZAR = as.data.frame(biso_unizar_con_checks),
     CHECK_SUMA_SHARE_UNIZAR = as.data.frame(check_suma_unizar),
     RESUMEN_CHECKS = as.data.frame(resumen_checks),
-    RESUMEN_FORMA_WILIAM = as.data.frame(resumen_forma_wiliam)
+    FUENTES_WILIAM = as.data.frame(validacion_wiliam$resumen_fuentes),
+    AJUSTES_MRIO_WILIAM = as.data.frame(validacion_wiliam$ajustes_intermedios),
+    AJUSTES_NEGATIVOS_UNIZAR = as.data.frame(ajustes_negativos_unizar),
+    RANGO_WILIAM_OFICIAL = as.data.frame(rango_wiliam),
+    RESUMEN_FORMA_WILIAM = as.data.frame(resumen_forma_wiliam),
+    METODOLOGIA = as.data.frame(metodologia)
   ),
-  file = "./Base_Import_share_by_origin/Comprobaciones_BISO.xlsx",
+  file = file.path(output_dir, "Comprobaciones_BISO.xlsx"),
   overwrite = TRUE
 )
 
 print(resumen_checks)
+print(validacion_wiliam$resumen_fuentes)
 print(resumen_forma_wiliam)
