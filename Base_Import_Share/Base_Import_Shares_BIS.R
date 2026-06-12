@@ -55,7 +55,7 @@ path_pp_to_bp <- file.path(
 
 tolerancia <- 1e-12
 tolerancia_comparacion <- 1e-10
-tolerancia_redondeo_share <- 1e-3
+tolerancia_validacion <- 1e-4
 tolerancia_flujo_pequeno <- 5e-3
 tolerancia_rango <- 1e-10
 
@@ -339,35 +339,37 @@ comparar_wiliam <- function(resultado, referencia) {
   ref <- alinear_referencia(calc, referencia)
   calc_mat <- as.matrix(calc[, sectores_columna])
   ref_mat <- as.matrix(ref[, sectores_columna])
-  diferencia <- abs(calc_mat - ref_mat)
+  diferencia_firmada <- calc_mat - ref_mat
+  diferencia <- abs(diferencia_firmada)
   posiciones <- which(
     diferencia > tolerancia_comparacion,
     arr.ind = TRUE
   )
 
-  ajustes <- if (nrow(posiciones) == 0) {
+  discrepancias <- if (nrow(posiciones) == 0) {
     tibble(
       Pais = character(),
       Producto = character(),
       Uso = character(),
       Calculado_MRIO = numeric(),
       WILIAM_oficial = numeric(),
+      Diferencia = numeric(),
       Diferencia_abs = numeric(),
       Importaciones = numeric(),
       Domestico = numeric(),
       Total = numeric(),
-      Motivo = character(),
-      Aceptado = logical()
+      Dentro_tolerancia = logical(),
+      Flujo_total_pequeno = logical(),
+      Diagnostico = character(),
+      Estado = character()
     )
   } else {
     fila <- posiciones[, "row"]
     columna <- posiciones[, "col"]
     diff_val <- diferencia[posiciones]
     total_val <- resultado$total[posiciones]
-    aceptado <- (
-      diff_val <= tolerancia_redondeo_share |
-        abs(total_val) <= tolerancia_flujo_pequeno
-    )
+    dentro_tolerancia <- diff_val <= tolerancia_validacion
+    flujo_total_pequeno <- abs(total_val) <= tolerancia_flujo_pequeno
 
     tibble(
       Pais = calc$Pais[fila],
@@ -375,51 +377,47 @@ comparar_wiliam <- function(resultado, referencia) {
       Uso = sectores_columna[columna],
       Calculado_MRIO = calc_mat[posiciones],
       WILIAM_oficial = ref_mat[posiciones],
+      Diferencia = diferencia_firmada[posiciones],
       Diferencia_abs = diff_val,
       Importaciones = resultado$importaciones[posiciones],
       Domestico = resultado$domestico[posiciones],
       Total = total_val,
-      Motivo = case_when(
-        abs(total_val) <= tolerancia_flujo_pequeno ~
+      Dentro_tolerancia = dentro_tolerancia,
+      Flujo_total_pequeno = flujo_total_pequeno,
+      Diagnostico = case_when(
+        dentro_tolerancia ~
+          "Diferencia numerica dentro de la tolerancia de 0.0001",
+        flujo_total_pequeno ~
           paste(
-            "Cociente sensible al redondeo:",
-            "el flujo total es <= 0.005"
+            "Flujo total <= 0.005: el cociente es sensible al redondeo,",
+            "pero esto no demuestra igualdad con WILIAM"
           ),
-        diff_val <= tolerancia_redondeo_share ~
-          "Redondeo de Data_origin_WILIAM a 4 decimales",
-        TRUE ~ "Diferencia no explicada"
+        TRUE ~ paste(
+          "Diferencia superior a 0.0001;",
+          "revisar la fuente sin redondear o la regla usada por WILIAM"
+        )
       ),
-      Aceptado = aceptado
+      Estado = if_else(
+        dentro_tolerancia,
+        "DENTRO_TOLERANCIA",
+        "REVISAR"
+      )
     ) %>%
       arrange(desc(Diferencia_abs))
   }
 
-  if (any(!ajustes$Aceptado)) {
-    stop("Existen diferencias WILIAM que no se explican por redondeo.")
-  }
-
-  reproducido <- calc
-  if (nrow(posiciones) > 0) {
-    for (i in seq_len(nrow(posiciones))) {
-      reproducido[
-        posiciones[i, "row"],
-        sectores_columna[posiciones[i, "col"]]
-      ] <- ref_mat[posiciones[i, , drop = FALSE]]
-    }
-  }
-
-  diff_final <- abs(
-    as.matrix(reproducido[, sectores_columna]) - ref_mat
-  )
   resumen_filas <- tibble(
-    Pais = reproducido$Pais,
-    Sector = reproducido$Sector,
-    Celdas_diferentes = rowSums(
-      diff_final > tolerancia_comparacion
+    Pais = calc$Pais,
+    Sector = calc$Sector,
+    Celdas_diferentes_numericas = rowSums(
+      diferencia > tolerancia_comparacion
     ),
-    Max_diferencia = apply(diff_final, 1, max),
+    Celdas_fuera_tolerancia = rowSums(
+      diferencia > tolerancia_validacion
+    ),
+    Max_diferencia = apply(diferencia, 1, max),
     Resultado = if_else(
-      Celdas_diferentes == 0,
+      Celdas_fuera_tolerancia == 0,
       "BIEN",
       "REVISAR"
     )
@@ -427,12 +425,10 @@ comparar_wiliam <- function(resultado, referencia) {
 
   list(
     calculado = calc,
-    reproducido = reproducido,
     referencia = ref,
-    ajustes = ajustes,
+    discrepancias = discrepancias,
     resumen_filas = resumen_filas,
-    diferencias_iniciales = diferencia,
-    diferencias_finales = diff_final
+    diferencias = diferencia
   )
 }
 
@@ -525,7 +521,7 @@ negativos_wiliam <- resultado_wiliam_raw$negativos %>%
   )
 
 referencia_pp <- alinear_referencia(
-  validacion_wiliam$reproducido,
+  validacion_wiliam$calculado,
   referencia_pp
 )
 
@@ -539,6 +535,24 @@ diff_pp_bp <- abs(
     as.matrix(
       validacion_wiliam$referencia[, sectores_finales]
     )
+)
+
+diff_wiliam <- validacion_wiliam$diferencias
+n_diff_intermedios <- sum(
+  diff_wiliam[, sectores_intermedios, drop = FALSE] >
+    tolerancia_comparacion
+)
+n_fuera_intermedios <- sum(
+  diff_wiliam[, sectores_intermedios, drop = FALSE] >
+    tolerancia_validacion
+)
+n_diff_finales <- sum(
+  diff_wiliam[, sectores_finales, drop = FALSE] >
+    tolerancia_comparacion
+)
+n_fuera_finales <- sum(
+  diff_wiliam[, sectores_finales, drop = FALSE] >
+    tolerancia_validacion
 )
 
 fuentes_wiliam <- tibble(
@@ -557,30 +571,25 @@ fuentes_wiliam <- tibble(
     "Trade.xlsx / BASE_Import_shares",
     "WILIAM.mdl / INITIAL_IMPORT_SHARES_FINAL_DEMAND"
   ),
-  Celdas_diferentes_iniciales = c(
-    sum(
-      validacion_wiliam$diferencias_iniciales[
-        , sectores_intermedios,
-        drop = FALSE
-      ] > tolerancia_comparacion
-    ),
-    sum(
-      validacion_wiliam$diferencias_iniciales[
-        , sectores_finales,
-        drop = FALSE
-      ] > tolerancia_comparacion
-    ),
+  Celdas_diferentes_numericas = c(
+    n_diff_intermedios,
+    n_diff_finales,
     sum(diff_pp_bp > tolerancia_comparacion)
+  ),
+  Celdas_fuera_tolerancia = c(
+    n_fuera_intermedios,
+    n_fuera_finales,
+    sum(diff_pp_bp > tolerancia_validacion)
   ),
   Max_diferencia = c(
     max(
-      validacion_wiliam$diferencias_iniciales[
+      validacion_wiliam$diferencias[
         , sectores_intermedios,
         drop = FALSE
       ]
     ),
     max(
-      validacion_wiliam$diferencias_iniciales[
+      validacion_wiliam$diferencias[
         , sectores_finales,
         drop = FALSE
       ]
@@ -589,19 +598,24 @@ fuentes_wiliam <- tibble(
   ),
   Explicacion = c(
     paste(
-      "Las diferencias se explican por el redondeo a 4 decimales;",
-      "los valores oficiales se usan como referencia."
+      "El calculo usa la formula indicada sin sustituir valores.",
+      n_fuera_intermedios,
+      "celdas superan la tolerancia de 0.0001."
     ),
     paste(
-      "La reproduccion a precios basicos coincide salvo redondeos",
-      "inferiores a 0.000002."
+      "Las diferencias de demanda final a precios basicos",
+      "quedan dentro de la tolerancia de 0.0001."
     ),
     paste(
       "El modelo transforma la demanda final a precios de comprador;",
       "por eso no debe compararse directamente con la MRIO basica."
     )
   ),
-  Resultado = "BIEN"
+  Resultado = c(
+    if_else(n_fuera_intermedios == 0, "BIEN", "REVISAR"),
+    if_else(n_fuera_finales == 0, "BIEN", "REVISAR"),
+    "DOCUMENTADO"
+  )
 )
 
 ###################
@@ -668,8 +682,8 @@ celdas_modificadas <- sum(
 
 resumen_checks <- tibble(
   Chequeo = c(
-    "Reproduccion WILIAM frente a Trade despues de reconciliar redondeos",
-    "Diferencias WILIAM explicadas por redondeo",
+    "Coincidencia numerica WILIAM frente a Trade",
+    "Coincidencia WILIAM con tolerancia absoluta de 0.0001",
     "Rango [0,1] de WILIAM oficial a precios basicos",
     "Rango [0,1] de WILIAM con fuentes efectivas del modelo",
     "Negativos UNIZAR limitados a variaciones de existencias",
@@ -678,8 +692,8 @@ resumen_checks <- tibble(
     "Ceros UNIZAR conservados exactamente"
   ),
   Total = c(
-    length(validacion_wiliam$diferencias_finales),
-    nrow(validacion_wiliam$ajustes),
+    length(validacion_wiliam$diferencias),
+    length(validacion_wiliam$diferencias),
     length(as.matrix(
       validacion_wiliam$referencia[, sectores_columna]
     )),
@@ -691,10 +705,13 @@ resumen_checks <- tibble(
   ),
   Bien = c(
     sum(
-      validacion_wiliam$diferencias_finales <=
+      validacion_wiliam$diferencias <=
         tolerancia_comparacion
     ),
-    sum(validacion_wiliam$ajustes$Aceptado),
+    sum(
+      validacion_wiliam$diferencias <=
+        tolerancia_validacion
+    ),
     total_celdas - nrow(fuera_rango_wiliam_bp),
     total_celdas - nrow(fuera_rango_wiliam_modelo),
     sum(
@@ -707,10 +724,13 @@ resumen_checks <- tibble(
   ),
   Revisar = c(
     sum(
-      validacion_wiliam$diferencias_finales >
+      validacion_wiliam$diferencias >
         tolerancia_comparacion
     ),
-    sum(!validacion_wiliam$ajustes$Aceptado),
+    sum(
+      validacion_wiliam$diferencias >
+        tolerancia_validacion
+    ),
     nrow(fuera_rango_wiliam_bp),
     nrow(fuera_rango_wiliam_modelo),
     sum(
@@ -722,8 +742,22 @@ resumen_checks <- tibble(
     0
   ),
   Resultado = c(
-    "BIEN",
-    "BIEN",
+    if_else(
+      any(
+        validacion_wiliam$diferencias >
+          tolerancia_comparacion
+      ),
+      "REVISAR",
+      "BIEN"
+    ),
+    if_else(
+      any(
+        validacion_wiliam$diferencias >
+          tolerancia_validacion
+      ),
+      "REVISAR",
+      "BIEN"
+    ),
     if_else(
       nrow(fuera_rango_wiliam_bp) == 0,
       "BIEN",
@@ -746,6 +780,42 @@ resumen_checks <- tibble(
       "REVISAR"
     ),
     "BIEN"
+  )
+)
+
+explicacion_wiliam <- tibble(
+  Concepto = c(
+    "Formula aplicada",
+    "Resultado de la comparacion",
+    "Fallo de la comprobacion historica",
+    "Interpretacion de los flujos pequenos",
+    "Decision metodologica"
+  ),
+  Explicacion = c(
+    paste(
+      "BIS = importaciones / (domestico + importaciones),",
+      "calculado directamente desde Data_origin_WILIAM.RData."
+    ),
+    paste(
+      nrow(validacion_wiliam$discrepancias),
+      "celdas difieren numericamente de Trade.xlsx y",
+      sum(!validacion_wiliam$discrepancias$Dentro_tolerancia),
+      "superan la tolerancia absoluta de 0.0001."
+    ),
+    paste(
+      "La hoja antigua usaba OR(diferencia < 0.0001,",
+      "-0.0001 > diferencia). Esa expresion acepta cualquier",
+      "diferencia negativa. La comprobacion correcta usa ABS(diferencia)."
+    ),
+    paste(
+      "Un total muy pequeno hace que el cociente cambie mucho con",
+      "redondeos minimos. Es una posible causa, no una prueba de igualdad."
+    ),
+    paste(
+      "Los valores calculados no se reemplazan por los oficiales.",
+      "Para certificar igualdad exacta hace falta la matriz sin redondear",
+      "o la regla original con la que se genero Trade.xlsx."
+    )
   )
 )
 
@@ -811,8 +881,10 @@ metodologia <- tibble(
     ),
     paste(
       "Se compara celda a celda con Trade.xlsx / BASE_Import_shares.",
-      nrow(validacion_wiliam$ajustes),
-      "celdas sensibles al redondeo se sustituyen por la referencia oficial."
+      nrow(validacion_wiliam$discrepancias),
+      "celdas difieren numericamente y",
+      sum(!validacion_wiliam$discrepancias$Dentro_tolerancia),
+      "superan la tolerancia de 0.0001. No se sustituyen valores."
     ),
     paste(
       "WILIAM.mdl carga los 6 usos finales desde",
@@ -848,12 +920,14 @@ write.xlsx(
 )
 
 hojas <- list(
-  BIS_R_WILIAM = validacion_wiliam$reproducido,
-  BIS_WILIAM_TRADE = validacion_wiliam$referencia,
+  RESUMEN_CHECKS = resumen_checks,
+  EXPLICACION_WILIAM = explicacion_wiliam,
+  DISCREPANCIAS_WILIAM = validacion_wiliam$discrepancias,
   COMPROBACION_WILIAM = validacion_wiliam$resumen_filas,
-  AJUSTES_WILIAM = validacion_wiliam$ajustes,
-  BIS_WILIAM_MODELO = bis_wiliam_modelo,
   FUENTES_WILIAM = fuentes_wiliam,
+  BIS_R_WILIAM = validacion_wiliam$calculado,
+  BIS_WILIAM_TRADE = validacion_wiliam$referencia,
+  BIS_WILIAM_MODELO = bis_wiliam_modelo,
   BIS_UNIZAR_RAW = resultado_unizar_raw$wide,
   BIS_UNIZAR_AJUSTADO = resultado_unizar_ajustado$wide,
   FUERA_RANGO_WILIAM_BP = fuera_rango_wiliam_bp,
@@ -861,7 +935,6 @@ hojas <- list(
   FUERA_RANGO_UNIZAR_RAW = fuera_rango_unizar_raw,
   NEGATIVOS_WILIAM = negativos_wiliam,
   AJUSTES_NEGATIVOS_UNIZAR = negativos_unizar,
-  RESUMEN_CHECKS = resumen_checks,
   EXPLICACION_NEGATIVOS = explicacion_negativos,
   METODOLOGIA = metodologia
 )
@@ -886,6 +959,10 @@ estilo_revisar <- createStyle(
 estilo_documentado <- createStyle(
   fgFill = "#FFEB9C",
   fontColour = "#9C6500"
+)
+estilo_texto_largo <- createStyle(
+  wrapText = TRUE,
+  valign = "top"
 )
 
 for (nombre_hoja in names(hojas)) {
@@ -922,24 +999,86 @@ for (nombre_hoja in names(hojas)) {
       widths = "auto"
     )
   }
+
+  if ("Explicacion" %in% names(datos_hoja)) {
+    col_explicacion <- match("Explicacion", names(datos_hoja))
+    setColWidths(wb, nombre_hoja, cols = col_explicacion, widths = 90)
+    addStyle(
+      wb,
+      nombre_hoja,
+      estilo_texto_largo,
+      rows = 2:(nrow(datos_hoja) + 1),
+      cols = col_explicacion,
+      gridExpand = TRUE,
+      stack = TRUE
+    )
+  }
+
+  if ("Diagnostico" %in% names(datos_hoja)) {
+    col_diagnostico <- match("Diagnostico", names(datos_hoja))
+    setColWidths(wb, nombre_hoja, cols = col_diagnostico, widths = 70)
+    addStyle(
+      wb,
+      nombre_hoja,
+      estilo_texto_largo,
+      rows = 2:(nrow(datos_hoja) + 1),
+      cols = col_diagnostico,
+      gridExpand = TRUE,
+      stack = TRUE
+    )
+  }
+
+  if ("Chequeo" %in% names(datos_hoja)) {
+    setColWidths(
+      wb,
+      nombre_hoja,
+      cols = match("Chequeo", names(datos_hoja)),
+      widths = 58
+    )
+  }
 }
 
-for (estado in c("BIEN", "REVISAR", "DOCUMENTADO")) {
-  estilo <- switch(
-    estado,
-    BIEN = estilo_bien,
-    REVISAR = estilo_revisar,
-    DOCUMENTADO = estilo_documentado
+for (nombre_hoja in names(hojas)) {
+  datos_hoja <- as.data.frame(hojas[[nombre_hoja]])
+  columna_estado <- intersect(
+    c("Resultado", "Estado"),
+    names(datos_hoja)
   )
-  conditionalFormatting(
-    wb,
-    "RESUMEN_CHECKS",
-    cols = 5,
-    rows = 2:(nrow(resumen_checks) + 1),
-    rule = paste0('=="', estado, '"'),
-    style = estilo,
-    type = "expression"
-  )
+
+  if (length(columna_estado) == 0) {
+    next
+  }
+
+  col_estado <- match(columna_estado[[1]], names(datos_hoja))
+  valores_estado <- datos_hoja[[columna_estado[[1]]]]
+
+  for (estado in c(
+    "BIEN",
+    "REVISAR",
+    "DOCUMENTADO",
+    "DENTRO_TOLERANCIA"
+  )) {
+    filas <- which(valores_estado == estado) + 1
+    if (length(filas) == 0) {
+      next
+    }
+    estilo <- switch(
+      estado,
+      BIEN = estilo_bien,
+      REVISAR = estilo_revisar,
+      DOCUMENTADO = estilo_documentado,
+      DENTRO_TOLERANCIA = estilo_documentado
+    )
+    addStyle(
+      wb,
+      nombre_hoja,
+      estilo,
+      rows = filas,
+      cols = col_estado,
+      gridExpand = TRUE,
+      stack = TRUE
+    )
+  }
 }
 
 saveWorkbook(
