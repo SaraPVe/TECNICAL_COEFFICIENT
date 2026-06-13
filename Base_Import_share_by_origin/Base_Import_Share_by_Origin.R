@@ -43,7 +43,7 @@ path_pp_to_bp_wiliam <- file.path(
 )
 
 tolerancia_comparacion <- 1e-10
-tolerancia_redondeo_mrio <- 5e-3
+tolerancia_redondeo_mrio <- 1e-4
 tolerancia_suma_share <- 1e-9
 tolerancia_rango <- 1e-12
 
@@ -430,7 +430,7 @@ detectar_fuera_rango <- function(df, fuente) {
 # VALIDACION WILIAM
 ###################
 
-reconciliar_wiliam <- function(biso_calc, biso_ref, final_demand_pp) {
+validar_wiliam <- function(biso_calc, biso_ref, final_demand_pp) {
   validar_claves(biso_calc, "BISO calculada desde MRIO WILIAM")
   validar_claves(biso_ref, "BISO WILIAM de referencia")
 
@@ -458,41 +458,31 @@ reconciliar_wiliam <- function(biso_calc, biso_ref, final_demand_pp) {
     stop("PP_to_BP y Trade.xlsx no coinciden en demanda final.")
   }
 
-  salida <- calc
-  ajustes_intermedios <- list()
+  discrepancias_intermedios <- list()
 
   for (sector_col in sector_orden_original) {
     diferencia <- abs(calc[[sector_col]] - ref[[sector_col]])
-    fuera_tolerancia <- diferencia > tolerancia_redondeo_mrio
-
-    if (any(fuera_tolerancia, na.rm = TRUE)) {
-      stop(
-        sprintf(
-          "La columna %s supera la tolerancia MRIO-WILIAM de %.4g.",
-          sector_col,
-          tolerancia_redondeo_mrio
+    idx_discrepancia <- which(diferencia > tolerancia_comparacion)
+    if (length(idx_discrepancia) > 0) {
+      discrepancias_intermedios[[sector_col]] <- tibble(
+        Pais = calc$Pais[idx_discrepancia],
+        Sector_Fila = calc$Sector_Fila[idx_discrepancia],
+        Pais_col = calc$Pais_col[idx_discrepancia],
+        Sector_Columna = sector_col,
+        valor_mrio = calc[[sector_col]][idx_discrepancia],
+        valor_wiliam = ref[[sector_col]][idx_discrepancia],
+        diferencia_abs = diferencia[idx_discrepancia],
+        fuera_tolerancia_1e_4 = if_else(
+          diferencia[idx_discrepancia] > tolerancia_redondeo_mrio,
+          "SI",
+          "NO"
+        ),
+        observacion = paste0(
+          "Diferencia entre Data_origin_WILIAM redondeada y ",
+          "Trade.xlsx; no se sustituye el valor calculado"
         )
       )
     }
-
-    idx_ajuste <- which(diferencia > tolerancia_comparacion)
-    if (length(idx_ajuste) > 0) {
-      ajustes_intermedios[[sector_col]] <- tibble(
-        Pais = calc$Pais[idx_ajuste],
-        Sector_Fila = calc$Sector_Fila[idx_ajuste],
-        Pais_col = calc$Pais_col[idx_ajuste],
-        Sector_Columna = sector_col,
-        valor_mrio = calc[[sector_col]][idx_ajuste],
-        valor_wiliam = ref[[sector_col]][idx_ajuste],
-        diferencia_abs = diferencia[idx_ajuste],
-        causa = "Redondeo de Data_origin_WILIAM (4 decimales)"
-      )
-      salida[[sector_col]][idx_ajuste] <- ref[[sector_col]][idx_ajuste]
-    }
-  }
-
-  for (sector_col in final_demand_order) {
-    salida[[sector_col]] <- pp[[sector_col]]
   }
 
   raw_final_diff <- abs(
@@ -500,7 +490,7 @@ reconciliar_wiliam <- function(biso_calc, biso_ref, final_demand_pp) {
       as.matrix(ref[, final_demand_order])
   )
 
-  ajustes_intermedios <- if (length(ajustes_intermedios) == 0) {
+  discrepancias_intermedios <- if (length(discrepancias_intermedios) == 0) {
     tibble(
       Pais = character(),
       Sector_Fila = character(),
@@ -509,45 +499,99 @@ reconciliar_wiliam <- function(biso_calc, biso_ref, final_demand_pp) {
       valor_mrio = numeric(),
       valor_wiliam = numeric(),
       diferencia_abs = numeric(),
-      causa = character()
+      fuera_tolerancia_1e_4 = character(),
+      observacion = character()
     )
   } else {
-    bind_rows(ajustes_intermedios)
+    bind_rows(discrepancias_intermedios) %>%
+      arrange(desc(diferencia_abs))
   }
+
+  posiciones_final <- which(
+    raw_final_diff > tolerancia_comparacion,
+    arr.ind = TRUE
+  )
+  diferencias_final_top <- if (nrow(posiciones_final) == 0) {
+    tibble(
+      Pais = character(),
+      Sector_Fila = character(),
+      Pais_col = character(),
+      Sector_Columna = character(),
+      valor_mrio = numeric(),
+      valor_oficial = numeric(),
+      diferencia_abs = numeric()
+    )
+  } else {
+    tibble(
+      Pais = calc$Pais[posiciones_final[, "row"]],
+      Sector_Fila = calc$Sector_Fila[posiciones_final[, "row"]],
+      Pais_col = calc$Pais_col[posiciones_final[, "row"]],
+      Sector_Columna = final_demand_order[posiciones_final[, "col"]],
+      valor_mrio = as.matrix(calc[, final_demand_order])[posiciones_final],
+      valor_oficial = as.matrix(ref[, final_demand_order])[posiciones_final],
+      diferencia_abs = raw_final_diff[posiciones_final]
+    ) %>%
+      arrange(desc(diferencia_abs)) %>%
+      slice_head(n = 1000)
+  }
+
+  n_diff_intermedios <- nrow(discrepancias_intermedios)
+  n_fuera_intermedios <- sum(
+    discrepancias_intermedios$diferencia_abs > tolerancia_redondeo_mrio
+  )
+  n_diff_final <- sum(raw_final_diff > tolerancia_comparacion, na.rm = TRUE)
 
   resumen_fuentes <- tibble(
     bloque = c("Intermedios (62)", "Demanda final (6)"),
     fuente_calculo = c(
       "Data_origin_WILIAM.RData",
-      "PP_to_BP.xlsx / BASE_Import_origin_shares_PP"
+      "Data_origin_WILIAM.RData (calculo MRIO crudo)"
     ),
     referencia = c(
       "Trade.xlsx / EXO_Import_origin_shares",
-      "Trade.xlsx / EXO_Import_origin_shares"
+      "PP_to_BP.xlsx y Trade.xlsx (parametro oficial WILIAM)"
     ),
-    celdas_ajustadas_o_sustituidas = c(
-      nrow(ajustes_intermedios),
-      sum(raw_final_diff > tolerancia_comparacion, na.rm = TRUE)
+    celdas_diferentes = c(
+      n_diff_intermedios,
+      n_diff_final
+    ),
+    celdas_fuera_tolerancia = c(
+      n_fuera_intermedios,
+      NA_integer_
     ),
     max_diferencia_entrada = c(
       if_else(
-        nrow(ajustes_intermedios) == 0,
+        n_diff_intermedios == 0,
         0,
-        max(ajustes_intermedios$diferencia_abs)
+        max(discrepancias_intermedios$diferencia_abs)
       ),
       max(raw_final_diff, na.rm = TRUE)
     ),
     motivo = c(
-      "La matriz MRIO esta redondeada; todas las diferencias son <= 0.005.",
-      "WILIAM usa la fuente oficial a precios de comprador para demanda final."
+      paste0(
+        "La MRIO WILIAM esta redondeada. Se muestran las diferencias y ",
+        "no se modifica el calculo."
+      ),
+      paste0(
+        "La demanda final oficial procede de PP_to_BP a precios de ",
+        "comprador; no es comparable directamente con la MRIO cruda."
+      )
     ),
-    check = c("BIEN", "BIEN")
+    check = c(
+      if_else(n_fuera_intermedios == 0, "BIEN", "REVISAR"),
+      "FUENTE_DISTINTA"
+    )
   )
 
   list(
-    biso_r = salida,
+    biso_r = calc,
     referencia = ref,
-    ajustes_intermedios = ajustes_intermedios,
+    discrepancias_intermedios = discrepancias_intermedios,
+    diferencias_final_top = diferencias_final_top,
+    n_diff_intermedios = n_diff_intermedios,
+    n_fuera_intermedios = n_fuera_intermedios,
+    n_diff_final = n_diff_final,
+    max_diff_final = max(raw_final_diff, na.rm = TRUE),
     resumen_fuentes = resumen_fuentes
   )
 }
@@ -604,7 +648,7 @@ resultado_wiliam_mrio <- calcular_biso(
 biso_wili_ref <- ordenar_biso(cargar_biso_wili_referencia())
 final_demand_pp <- cargar_final_demand_pp_wiliam(biso_wili_ref)
 
-validacion_wiliam <- reconciliar_wiliam(
+validacion_wiliam <- validar_wiliam(
   resultado_wiliam_mrio$wide,
   biso_wili_ref,
   final_demand_pp
@@ -695,42 +739,58 @@ max_error_rango_wiliam <- if (nrow(rango_wiliam) == 0) {
 
 resumen_checks <- tibble(
   chequeo = c(
-    "BISO_R reproducida frente a WILIAM",
+    "BISO WILIAM intermedios: MRIO cruda vs referencia oficial",
+    "BISO WILIAM demanda final: MRIO cruda vs fuente oficial",
     "Suma de shares UNIZAR en grupos con flujo",
     "Suma de shares UNIZAR en grupos sin flujo",
     "Rango [0,1] de BISO_UNIZAR",
     "Rango [0,1] de la referencia WILIAM"
   ),
   total = c(
-    nrow(comparacion_wiliam$filas),
+    nrow(biso_r) * length(sector_orden_original),
+    nrow(biso_r) * length(final_demand_order),
     nrow(grupos_unizar_activos),
     nrow(grupos_unizar_cero),
     nrow(biso_unizar) * length(share_cols_order),
     nrow(biso_wili_ref) * length(share_cols_order)
   ),
   bien = c(
-    sum(comparacion_wiliam$filas$check_vs_WILIAM == "BIEN"),
+    nrow(biso_r) * length(sector_orden_original) -
+      validacion_wiliam$n_fuera_intermedios,
+    nrow(biso_r) * length(final_demand_order) -
+      validacion_wiliam$n_diff_final,
     sum(grupos_unizar_activos$check_suma_share == "BIEN"),
     sum(grupos_unizar_cero$check_suma_share == "BIEN"),
     nrow(biso_unizar) * length(share_cols_order) - nrow(rango_unizar),
     nrow(biso_wili_ref) * length(share_cols_order) - nrow(rango_wiliam)
   ),
   revisar = c(
-    sum(comparacion_wiliam$filas$check_vs_WILIAM == "REVISAR"),
+    validacion_wiliam$n_fuera_intermedios,
+    validacion_wiliam$n_diff_final,
     sum(grupos_unizar_activos$check_suma_share == "REVISAR"),
     sum(grupos_unizar_cero$check_suma_share == "REVISAR"),
     nrow(rango_unizar),
     nrow(rango_wiliam)
   ),
   max_error = c(
-    comparacion_wiliam$max_diferencia,
+    if_else(
+      nrow(validacion_wiliam$discrepancias_intermedios) == 0,
+      0,
+      max(validacion_wiliam$discrepancias_intermedios$diferencia_abs)
+    ),
+    validacion_wiliam$max_diff_final,
     max(grupos_unizar_activos$error_abs, na.rm = TRUE),
     max(grupos_unizar_cero$error_abs, na.rm = TRUE),
     max_error_rango_unizar,
     max_error_rango_wiliam
   ),
   check = c(
-    if_else(comparacion_wiliam$total_diferencias == 0, "BIEN", "REVISAR"),
+    if_else(
+      validacion_wiliam$n_fuera_intermedios == 0,
+      "BIEN",
+      "REVISAR"
+    ),
+    "FUENTE_DISTINTA",
     if_else(all(grupos_unizar_activos$check_suma_share == "BIEN"), "BIEN", "REVISAR"),
     if_else(all(grupos_unizar_cero$check_suma_share == "BIEN"), "BIEN", "REVISAR"),
     if_else(nrow(rango_unizar) == 0, "BIEN", "REVISAR"),
@@ -744,43 +804,52 @@ resumen_forma_wiliam <- tibble(
     "n_columnas",
     "claves_duplicadas_BISO_R",
     "claves_duplicadas_BISO_WILIAM",
-    "celdas_diferentes_finales"
+    "celdas_diferentes_intermedios",
+    "celdas_diferentes_demanda_final"
   ),
   valor_biso_r = c(
     nrow(biso_r),
     ncol(biso_r),
     sum(duplicated(biso_r[, cols_id])),
     NA_real_,
-    comparacion_wiliam$total_diferencias
+    validacion_wiliam$n_diff_intermedios,
+    validacion_wiliam$n_diff_final
   ),
   valor_biso_wili = c(
     nrow(biso_wili_ref),
     ncol(biso_wili_ref),
     NA_real_,
     sum(duplicated(biso_wili_ref[, cols_id])),
-    comparacion_wiliam$total_diferencias
+    validacion_wiliam$n_diff_intermedios,
+    validacion_wiliam$n_diff_final
   ),
   check = c(
     if_else(nrow(biso_r) == nrow(biso_wili_ref), "BIEN", "REVISAR"),
     if_else(ncol(biso_r) == ncol(biso_wili_ref), "BIEN", "REVISAR"),
     if_else(sum(duplicated(biso_r[, cols_id])) == 0, "BIEN", "REVISAR"),
     if_else(sum(duplicated(biso_wili_ref[, cols_id])) == 0, "BIEN", "REVISAR"),
-    if_else(comparacion_wiliam$total_diferencias == 0, "BIEN", "REVISAR")
+    if_else(
+      validacion_wiliam$n_fuera_intermedios == 0,
+      "BIEN",
+      "REVISAR"
+    ),
+    "FUENTE_DISTINTA"
   )
 )
 
 metodologia <- tibble(
-  paso = 1:9,
+  paso = 1:10,
   descripcion = c(
     "Intermedios WILIAM: calculados desde Data_origin_WILIAM.RData.",
     "La fuente MRIO WILIAM esta redondeada a 4 decimales.",
-    "Se aceptan diferencias MRIO <= 0.005 y se reconcilian con Trade.xlsx.",
-    "Demanda final WILIAM: se usa PP_to_BP.xlsx, la fuente oficial a precios de comprador.",
-    "BISO_R final se compara celda a celda con Trade.xlsx usando valor absoluto.",
+    "Las diferencias intermedias se muestran y se evaluan con valor absoluto.",
+    "BISO_R conserva el valor calculado: no se sustituye por Trade.xlsx.",
+    "Se usa 1e-4 como tolerancia de validacion de los intermedios WILIAM.",
+    "La demanda final oficial WILIAM procede de PP_to_BP.xlsx a precios de comprador.",
+    "La demanda final MRIO cruda se informa por separado porque usa una fuente distinta.",
     "UNIZAR: los flujos negativos se sustituyen por cero antes de normalizar.",
     "Los grupos UNIZAR con flujo deben sumar 1.",
-    "Los grupos UNIZAR sin flujo deben sumar 0.",
-    "Todas las shares UNIZAR finales deben quedar dentro de [0,1]."
+    "Los grupos UNIZAR sin flujo deben sumar 0 y todas las shares quedar en [0,1]."
   )
 )
 
@@ -802,7 +871,12 @@ write.xlsx(
     CHECK_SUMA_SHARE_UNIZAR = as.data.frame(check_suma_unizar),
     RESUMEN_CHECKS = as.data.frame(resumen_checks),
     FUENTES_WILIAM = as.data.frame(validacion_wiliam$resumen_fuentes),
-    AJUSTES_MRIO_WILIAM = as.data.frame(validacion_wiliam$ajustes_intermedios),
+    DISCREPANCIAS_MRIO_WILIAM = as.data.frame(
+      validacion_wiliam$discrepancias_intermedios
+    ),
+    DEMANDA_FINAL_DIF_TOP = as.data.frame(
+      validacion_wiliam$diferencias_final_top
+    ),
     AJUSTES_NEGATIVOS_UNIZAR = as.data.frame(ajustes_negativos_unizar),
     RANGO_WILIAM_OFICIAL = as.data.frame(rango_wiliam),
     RESUMEN_FORMA_WILIAM = as.data.frame(resumen_forma_wiliam),

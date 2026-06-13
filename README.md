@@ -28,12 +28,14 @@ Cálculo de coeficientes técnicos e import shares a partir de matrices input-ou
 Calcula la matriz de coeficientes técnicos a partir de la tabla input-output.
 
 1. **Carga** la matriz IO (`Data_origin_UNIZAR.RData`) con 2 206 filas (país × sector).
-2. **Suma por columna** — calcula el total de producción por cada columna (sector-país).
-3. **Suma por sector** — agrega las filas por sector (`group_by(Sector)`).
-4. **División** — divide cada columna entre su total de producción (`sweep`), obteniendo los coeficientes técnicos.
-5. **Transposición** — pivota el resultado a formato largo (país, sector, valores) usando `pivot_longer`.
-6. **Ordenación** — ordena por país y sector según un orden predefinido (35 países × 62 sectores).
-7. **Exporta** → `Tecnical coefficients final.xlsx`
+2. **Suma por columna** — calcula el output total usando las 2 206 filas.
+3. **Suma por sector** — agrega las filas de los 62 sectores intermedios.
+4. **División** — divide el consumo intermedio de cada sector entre el output total de la columna.
+5. **Limita la matriz** — exporta únicamente las 62 columnas intermedias; la demanda final no forma parte de la tecnología de producción.
+6. **Sectores sin producción** — aplica la tecnología media del mismo sector entre países, excluyendo ceros.
+7. **Hidrógeno** — reproduce la regla de WILIAM: `HYDROGEN_PRODUCTION` usa la tecnología media de `MANUFACTURE_CHEMICAL`.
+8. **Validación** — compara el cálculo WILIAM con `Production.xlsx` usando diferencias absolutas y aplica el método validado a UNIZAR.
+9. **Exporta** → `Final_matrix_CT_1.xlsx`, `Tecnical coefficients final.xlsx` y el libro de comprobaciones.
 
 ### 2. Base Import Share (`Base_Import_Share/Base_Import_Shares_BIS.R`)
 
@@ -41,8 +43,8 @@ Calcula la proporción de importaciones de cada sector por país (import share).
 
 1. **Carga** la matriz IO y filtra las filas de impuestos y valor añadido.
 2. **Numerador** — para cada fila (país-sector), suma las columnas del mismo país excluyendo la propia fila (importaciones de los demás países para ese sector).
-3. **Denominador** — igual pero incluyendo todas las filas del mismo sector (total de importaciones).
-4. **Import share** = numerador / denominador (con NAs → 0).
+3. **Denominador** — uso total del producto: producción doméstica más importaciones.
+4. **Import share** = importaciones / uso total (con denominador cero → 0).
 5. **Transposición** — extrae submatrices por país y las apila para obtener el formato final.
 6. **Exporta** → `Base_Import_Share_R.xlsx`
 
@@ -56,7 +58,16 @@ Calcula la proporción de importaciones desglosada por país de origen.
 4. **Import share** = numerador / denominador, con `case_when` para manejar diagonal y divisiones por cero.
 5. **Pivota a ancho** — vuelve al formato matricial, manteniendo el orden original de sectores en las columnas.
 6. **NA → 0** y ordena por país y sector.
-7. **Exporta** → `BISO.xlsx`
+7. **Validación WILIAM** — conserva el cálculo MRIO crudo y muestra sus diferencias frente a `Trade.xlsx`; no sustituye silenciosamente los valores.
+8. **Demanda final WILIAM** — se documenta por separado porque la referencia oficial procede de `PP_to_BP.xlsx` a precios de comprador.
+9. **Exporta** → `BISO.xlsx` y `Comprobaciones_BISO.xlsx`.
+
+## Comprobaciones
+
+- Todas las diferencias se calculan con valor absoluto.
+- Los coeficientes y shares de UNIZAR se comprueban frente al rango `[0,1]`.
+- BIS y BISO de UNIZAR comprueban que los grupos con flujo sumen 1 y los grupos sin flujo sumen 0.
+- El libro `Comprobacion_integral_MRIO.xlsx` resume la validación de TC, BIS y BISO, incluida la revisión manual de Austria.
 
 ## Datos de entrada
 
