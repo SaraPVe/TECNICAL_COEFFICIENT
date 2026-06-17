@@ -34,7 +34,7 @@ Calcula la matriz de coeficientes técnicos a partir de la tabla input-output.
 5. **Limita la matriz** — exporta únicamente las 62 columnas intermedias; la demanda final no forma parte de la tecnología de producción.
 6. **Sectores sin producción** — aplica la tecnología media del mismo sector entre países, excluyendo ceros.
 7. **Hidrógeno** — reproduce la regla de WILIAM: `HYDROGEN_PRODUCTION` usa la tecnología media de `MANUFACTURE_CHEMICAL`.
-8. **Validación** — compara el cálculo WILIAM con `Production.xlsx` usando diferencias absolutas y aplica el método validado a UNIZAR.
+8. **Validación** — compara el cálculo WILIAM con `Production.xlsx` usando diferencias absolutas, aplica el método validado a UNIZAR y comprueba cada coeficiente técnico individual frente al rango `[0,0.85]`.
 9. **Exporta** → `Final_matrix_CT_1.xlsx`, `Tecnical coefficients final.xlsx` y el libro de comprobaciones.
 
 ### 2. Base Import Share (`Base_Import_Share/Base_Import_Shares_BIS.R`)
@@ -65,7 +65,8 @@ Calcula la proporción de importaciones desglosada por país de origen.
 ## Comprobaciones
 
 - Todas las diferencias se calculan con valor absoluto.
-- Los coeficientes y shares de UNIZAR se comprueban frente al rango `[0,1]`.
+- Los coeficientes técnicos de UNIZAR se comprueban frente al rango `[0,0.85]`; los shares de UNIZAR se comprueban frente al rango `[0,1]`.
+- Los coeficientes técnicos de UNIZAR se comprueban individualmente; no se suman para este control.
 - BIS y BISO de UNIZAR comprueban que los grupos con flujo sumen 1 y los grupos sin flujo sumen 0.
 - El libro `Comprobacion_integral_MRIO.xlsx` resume la validación de TC, BIS y BISO, incluida la revisión manual de Austria.
 

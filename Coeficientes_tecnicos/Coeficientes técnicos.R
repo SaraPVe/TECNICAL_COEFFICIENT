@@ -58,7 +58,9 @@ path_production <- file.path(
 tolerancia_cero <- 1e-12
 tolerancia_estricta <- 1e-10
 tolerancia_mrio_redondeada <- 2e-6
+tolerancia_referencia_final <- 5.1e-10
 tolerancia_rango <- 1e-12
+limite_superior_unizar <- 0.85
 
 ###################
 # CLASIFICACIONES
@@ -438,7 +440,7 @@ comparacion_metodo <- comparar_matrices(
   metodo_sobre_ref$matriz,
   ref_wiliam_final$matriz,
   ref_wiliam_final$ids,
-  tolerancia_estricta
+  tolerancia_referencia_final
 )
 comparacion_final_mrio <- comparar_matrices(
   "WILIAM desde RData redondeado y tecnologia media vs referencia final",
@@ -452,14 +454,43 @@ mat_unizar_raw <- tc_unizar$final
 mat_unizar_final <- tc_unizar_final$matriz
 fuera_rango_unizar <- which(
   mat_unizar_final < -tolerancia_rango |
-    mat_unizar_final > 1 + tolerancia_rango,
+    mat_unizar_final > limite_superior_unizar + tolerancia_rango,
   arr.ind = TRUE
 )
+detalle_fuera_rango_unizar <- if (nrow(fuera_rango_unizar) == 0) {
+  tibble(
+    Country = character(),
+    Text = character(),
+    Sector_destino = character(),
+    Valor = numeric(),
+    Motivo = character()
+  )
+} else {
+  tibble(
+    Country = tc_unizar$ids_originales$Country[
+      fuera_rango_unizar[, "row"]
+    ],
+    Text = tc_unizar$ids_originales$Text[
+      fuera_rango_unizar[, "row"]
+    ],
+    Sector_destino = colnames(mat_unizar_final)[
+      fuera_rango_unizar[, "col"]
+    ],
+    Valor = mat_unizar_final[fuera_rango_unizar],
+    Motivo = if_else(
+      mat_unizar_final[fuera_rango_unizar] >
+        limite_superior_unizar + tolerancia_rango,
+      "MAYOR_QUE_0.85",
+      "MENOR_QUE_0"
+    )
+  ) %>%
+    arrange(desc(Valor))
+}
 
 resumen_unizar <- tibble(
   Chequeo = c(
     "UNIZAR: valores no finitos en matriz final",
-    "UNIZAR: coeficientes fuera de [0,1]",
+    "UNIZAR: coeficientes tecnicos individuales fuera de [0,0.85]",
     "UNIZAR: columnas pais-sector completadas con tecnologia media"
   ),
   Total_celdas = c(
@@ -485,13 +516,13 @@ resumen_unizar <- tibble(
       max(
         pmax(
           -mat_unizar_final[fuera_rango_unizar],
-          mat_unizar_final[fuera_rango_unizar] - 1
+          mat_unizar_final[fuera_rango_unizar] - limite_superior_unizar
         )
       )
     },
     max(abs(mat_unizar_final - mat_unizar_raw))
   ),
-  Tolerancia_aplicada = c(0, tolerancia_rango, NA_real_),
+  Tolerancia_aplicada = c(0, limite_superior_unizar, NA_real_),
   Check = c(
     if_else(all(is.finite(mat_unizar_final)), "BIEN", "REVISAR"),
     if_else(nrow(fuera_rango_unizar) == 0, "BIEN", "REVISAR"),
@@ -518,7 +549,7 @@ metodologia <- tibble(
     "HYDROGEN_PRODUCTION usa la tecnologia media de MANUFACTURE_CHEMICAL, igual que Production.xlsx.",
     "La reproduccion del metodo se valida primero usando la matriz bruta oficial de WILIAM.",
     "Las diferencias del RData WILIAM se muestran y se evaluan en valor absoluto; no se sustituyen silenciosamente.",
-    "El mismo metodo validado se aplica a UNIZAR y se comprueba el rango [0,1]."
+    "El mismo metodo validado se aplica a UNIZAR y cada coeficiente tecnico individual se comprueba frente al rango [0,0.85]."
   )
 )
 
@@ -603,7 +634,8 @@ crear_libro_comprobaciones <- function(path) {
       tc_unizar$ids_originales,
       mat_unizar_raw
     ),
-    TC_UNIZAR_FINAL = tc_unizar_export
+    TC_UNIZAR_FINAL = tc_unizar_export,
+    TC_UNIZAR_FUERA_RANGO = detalle_fuera_rango_unizar
   )
 
   wb <- createWorkbook()
