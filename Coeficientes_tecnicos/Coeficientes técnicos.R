@@ -48,6 +48,12 @@ data_dir <- file.path(project_root, "Data")
 output_dir <- script_dir
 checks_dir <- file.path(output_dir, "Comprobaciones")
 dir.create(checks_dir, recursive = TRUE, showWarnings = FALSE)
+checks_file <- file.path(checks_dir, "Comprobaciones_TC.xlsx")
+legacy_checks_file <- file.path(
+  checks_dir,
+  "Comprobaciones coeficinete técnico.xlsx"
+)
+results_file <- file.path(output_dir, "Resultados_WILIAM_TC.xlsx")
 
 wiliam_root <- localizar_wiliam(project_root)
 path_production <- file.path(
@@ -116,6 +122,44 @@ map_country_to_wiliam <- c(
   INDIA = "India",
   LATAM = "LATAM",
   RUSSIA = "Russia",
+  USMCA = "USMCA",
+  LROW = "LROW"
+)
+
+map_wiliam_code_to_region_name <- c(
+  AUT = "AUSTRIA",
+  BEL = "BELGIUM",
+  BGR = "BULGARIA",
+  HRV = "CROATIA",
+  CYP = "CYPRUS",
+  CZE = "CZECH_REPUBLIC",
+  DNK = "DENMARK",
+  EST = "ESTONIA",
+  FIN = "FINLAND",
+  FRA = "FRANCE",
+  DEU = "GERMANY",
+  GRC = "GREECE",
+  HUN = "HUNGARY",
+  IRL = "IRELAND",
+  ITA = "ITALY",
+  LVA = "LATVIA",
+  LTU = "LITHUANIA",
+  LUX = "LUXEMBOURG",
+  MLT = "MALTA",
+  NLD = "NETHERLANDS",
+  POL = "POLAND",
+  PRT = "PORTUGAL",
+  ROU = "ROMANIA",
+  SVK = "SLOVAKIA",
+  SVN = "SLOVENIA",
+  ESP = "SPAIN",
+  SWE = "SWEDEN",
+  UK = "UK",
+  China = "CHINA",
+  EASOC = "EASOC",
+  India = "INDIA",
+  LATAM = "LATAM",
+  Russia = "RUSSIA",
   USMCA = "USMCA",
   LROW = "LROW"
 )
@@ -291,8 +335,119 @@ aplicar_tecnologia_media <- function(raw, ids) {
   list(matriz = ajustado, promedio = promedio, columnas = columnas)
 }
 
+mantener_columnas_sin_produccion_cero <- function(raw, ids) {
+  ajustado <- raw
+  columnas <- list()
+
+  for (pais_idx in seq_len(35)) {
+    filas <- ((pais_idx - 1) * 62 + 1):(pais_idx * 62)
+    for (sector_destino_idx in seq_len(62)) {
+      columna_pais <- raw[filas, sector_destino_idx]
+      if (sum(abs(columna_pais), na.rm = TRUE) <= tolerancia_cero) {
+        ajustado[filas, sector_destino_idx] <- 0
+        columnas[[length(columnas) + 1]] <- tibble(
+          Country = ids$Country[filas[[1]]],
+          Sector_destino = sectores[[sector_destino_idx]],
+          Suma_TC_antes = sum(columna_pais, na.rm = TRUE),
+          Metodo = "Columna sin produccion: se mantiene en cero"
+        )
+      }
+    }
+  }
+
+  columnas <- if (length(columnas) == 0) {
+    tibble(
+      Country = character(),
+      Sector_destino = character(),
+      Suma_TC_antes = numeric(),
+      Metodo = character()
+    )
+  } else {
+    bind_rows(columnas)
+  }
+
+  list(matriz = ajustado, columnas = columnas)
+}
+
 matriz_a_tabla <- function(ids, matriz) {
   bind_cols(ids, as_tibble(matriz, .name_repair = "minimal"))
+}
+
+nombre_rango_tc_uniz <- function(codigo_pais) {
+  nombre_region <- unname(map_wiliam_code_to_region_name[[codigo_pais]])
+  if (is.null(nombre_region) || is.na(nombre_region)) {
+    stop("No existe nombre de rango WILIAM para el pais ", codigo_pais, ".")
+  }
+  paste0("A_MATRIX_TOTAL_", nombre_region, "_UNIZ")
+}
+
+crear_estilos_excel <- function() {
+  list(
+    header = createStyle(
+      fgFill = "#1F4E78",
+      fontColour = "#FFFFFF",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center"
+    ),
+    bien = createStyle(fgFill = "#C6EFCE", fontColour = "#006100"),
+    revisar = createStyle(fgFill = "#FFC7CE", fontColour = "#9C0006"),
+    documentado = createStyle(fgFill = "#FFEB9C", fontColour = "#9C6500"),
+    texto = createStyle(wrapText = TRUE, valign = "top"),
+    numero = createStyle(numFmt = "0.000000000000")
+  )
+}
+
+agregar_hoja_tabla <- function(wb, nombre, tabla, estilos) {
+  tabla <- as.data.frame(tabla)
+  addWorksheet(wb, nombre)
+  writeData(wb, nombre, tabla, withFilter = nrow(tabla) > 0)
+
+  if (ncol(tabla) == 0) {
+    return(invisible(NULL))
+  }
+
+  addStyle(
+    wb,
+    nombre,
+    estilos$header,
+    rows = 1,
+    cols = seq_len(ncol(tabla)),
+    gridExpand = TRUE
+  )
+  freezePane(
+    wb,
+    nombre,
+    firstActiveRow = 2,
+    firstActiveCol = min(3, ncol(tabla) + 1)
+  )
+  setColWidths(
+    wb,
+    nombre,
+    cols = seq_len(ncol(tabla)),
+    widths = if (ncol(tabla) <= 8) {
+      "auto"
+    } else {
+      c(14, 34, rep(14, ncol(tabla) - 2))
+    }
+  )
+
+  texto_cols <- intersect(c("Descripcion", "Metodo", "Motivo"), names(tabla))
+  for (columna in texto_cols) {
+    col_idx <- match(columna, names(tabla))
+    setColWidths(wb, nombre, cols = col_idx, widths = 70)
+    if (nrow(tabla) > 0) {
+      addStyle(
+        wb,
+        nombre,
+        estilos$texto,
+        rows = 2:(nrow(tabla) + 1),
+        cols = col_idx,
+        gridExpand = TRUE,
+        stack = TRUE
+      )
+    }
+  }
 }
 
 ###################
@@ -423,7 +578,7 @@ metodo_sobre_mrio <- aplicar_tecnologia_media(
   tc_wiliam$final,
   tc_wiliam$ids_codigos
 )
-tc_unizar_final <- aplicar_tecnologia_media(
+tc_unizar_final <- mantener_columnas_sin_produccion_cero(
   tc_unizar$final,
   tc_unizar$ids_originales
 )
@@ -491,7 +646,7 @@ resumen_unizar <- tibble(
   Chequeo = c(
     "UNIZAR: valores no finitos en matriz final",
     "UNIZAR: coeficientes tecnicos individuales fuera de [0,0.85]",
-    "UNIZAR: columnas pais-sector completadas con tecnologia media"
+    "UNIZAR: columnas pais-sector sin produccion mantenidas en cero"
   ),
   Total_celdas = c(
     length(mat_unizar_final),
@@ -545,11 +700,11 @@ metodologia <- tibble(
     "Solo se exportan las 2.170 columnas intermedias; la demanda final no es una matriz tecnologica.",
     "Si el output de una columna es cero, su coeficiente bruto se fija en cero.",
     "La matriz bruta WILIAM se compara con EXO_Technical_coefficients_1.",
-    "Para un pais-sector sin produccion se usa la tecnologia media del mismo sector entre paises, excluyendo ceros.",
-    "HYDROGEN_PRODUCTION usa la tecnologia media de MANUFACTURE_CHEMICAL, igual que Production.xlsx.",
+    "Para reproducir WILIAM, un pais-sector sin produccion usa la tecnologia media del mismo sector entre paises, excluyendo ceros.",
+    "En la reproduccion de WILIAM, HYDROGEN_PRODUCTION usa la tecnologia media de MANUFACTURE_CHEMICAL, igual que Production.xlsx.",
     "La reproduccion del metodo se valida primero usando la matriz bruta oficial de WILIAM.",
     "Las diferencias del RData WILIAM se muestran y se evaluan en valor absoluto; no se sustituyen silenciosamente.",
-    "El mismo metodo validado se aplica a UNIZAR y cada coeficiente tecnico individual se comprueba frente al rango [0,0.85]."
+    "En UNIZAR, las columnas pais-sector sin produccion se mantienen a cero y cada coeficiente tecnico individual se comprueba frente al rango [0,0.85]."
   )
 )
 
@@ -568,7 +723,7 @@ write.xlsx(
 )
 
 tc_unizar_export <- matriz_a_tabla(
-  tc_unizar$ids_originales,
+  tc_unizar$ids_codigos,
   mat_unizar_final
 )
 write.xlsx(
@@ -613,7 +768,7 @@ crear_libro_comprobaciones <- function(path) {
     DISCREP_WILIAM_RAW = comparacion_raw$detalle,
     DISCREP_WILIAM_FINAL = comparacion_final_mrio$detalle,
     COLUMNAS_MEDIA_WILIAM = metodo_sobre_mrio$columnas,
-    COLUMNAS_MEDIA_UNIZAR = tc_unizar_final$columnas,
+    COLUMNAS_CERO_UNIZAR = tc_unizar_final$columnas,
     TC_WILIAM_RAW_CALC = matriz_a_tabla(
       tc_wiliam$ids_codigos,
       tc_wiliam$final
@@ -639,43 +794,10 @@ crear_libro_comprobaciones <- function(path) {
   )
 
   wb <- createWorkbook()
-  header_style <- createStyle(
-    fgFill = "#1F4E78",
-    fontColour = "#FFFFFF",
-    textDecoration = "bold",
-    halign = "center",
-    valign = "center"
-  )
-  check_bien <- createStyle(fgFill = "#C6EFCE", fontColour = "#006100")
-  check_revisar <- createStyle(fgFill = "#FFC7CE", fontColour = "#9C0006")
-  check_doc <- createStyle(fgFill = "#FFEB9C", fontColour = "#9C6500")
+  estilos <- crear_estilos_excel()
 
   for (nombre in names(hojas)) {
-    tabla <- as.data.frame(hojas[[nombre]])
-    addWorksheet(wb, nombre)
-    writeData(wb, nombre, tabla, withFilter = nrow(tabla) > 0)
-    if (ncol(tabla) > 0) {
-      addStyle(
-        wb,
-        nombre,
-        header_style,
-        rows = 1,
-        cols = seq_len(ncol(tabla)),
-        gridExpand = TRUE
-      )
-      freezePane(
-        wb,
-        nombre,
-        firstActiveRow = 2,
-        firstActiveCol = min(3, ncol(tabla) + 1)
-      )
-      setColWidths(
-        wb,
-        nombre,
-        cols = seq_len(ncol(tabla)),
-        widths = if (ncol(tabla) <= 8) "auto" else c(14, 34, rep(14, ncol(tabla) - 2))
-      )
-    }
+    agregar_hoja_tabla(wb, nombre, hojas[[nombre]], estilos)
   }
 
   if ("Check" %in% names(resumen_checks)) {
@@ -686,7 +808,7 @@ crear_libro_comprobaciones <- function(path) {
       cols = col_check,
       rows = 2:(nrow(resumen_checks) + 1),
       rule = '=="BIEN"',
-      style = check_bien
+      style = estilos$bien
     )
     conditionalFormatting(
       wb,
@@ -694,7 +816,7 @@ crear_libro_comprobaciones <- function(path) {
       cols = col_check,
       rows = 2:(nrow(resumen_checks) + 1),
       rule = '=="REVISAR"',
-      style = check_revisar
+      style = estilos$revisar
     )
     conditionalFormatting(
       wb,
@@ -702,18 +824,132 @@ crear_libro_comprobaciones <- function(path) {
       cols = col_check,
       rows = 2:(nrow(resumen_checks) + 1),
       rule = '=="DOCUMENTADO"',
-      style = check_doc
+      style = estilos$documentado
     )
   }
 
   saveWorkbook(wb, path, overwrite = TRUE)
 }
 
-crear_libro_comprobaciones(
-  file.path(
-    checks_dir,
-    "Comprobaciones coeficinete técnico.xlsx"
+crear_libro_resultados_wiliam <- function(path) {
+  wb <- createWorkbook()
+  estilos <- crear_estilos_excel()
+  sheet_wiliam <- "EXO_Technical_coefficients_UNIZ"
+  start_header <- 4
+  start_data <- 5
+
+  addWorksheet(wb, sheet_wiliam)
+  header_wiliam <- as.data.frame(
+    as.list(c(NA_character_, NA_character_, sectores)),
+    check.names = FALSE
   )
-)
+  writeData(
+    wb,
+    sheet_wiliam,
+    header_wiliam,
+    startRow = start_header,
+    startCol = 1,
+    colNames = FALSE
+  )
+  writeData(
+    wb,
+    sheet_wiliam,
+    tc_unizar_export,
+    startRow = start_data,
+    startCol = 1,
+    colNames = FALSE
+  )
+  addStyle(
+    wb,
+    sheet_wiliam,
+    estilos$header,
+    rows = start_header,
+    cols = 3:(length(sectores) + 2),
+    gridExpand = TRUE
+  )
+  addStyle(
+    wb,
+    sheet_wiliam,
+    estilos$numero,
+    rows = start_data:(start_data + nrow(tc_unizar_export) - 1),
+    cols = 3:(length(sectores) + 2),
+    gridExpand = TRUE
+  )
+  freezePane(
+    wb,
+    sheet_wiliam,
+    firstActiveRow = start_data,
+    firstActiveCol = 3
+  )
+  setColWidths(wb, sheet_wiliam, cols = 1, widths = 12)
+  setColWidths(wb, sheet_wiliam, cols = 2, widths = 34)
+  setColWidths(
+    wb,
+    sheet_wiliam,
+    cols = 3:(length(sectores) + 2),
+    widths = 14
+  )
+
+  for (pais_idx in seq_along(pais_orden_codigos)) {
+    fila_ini <- start_data + (pais_idx - 1) * length(sectores)
+    fila_fin <- fila_ini + length(sectores) - 1
+    createNamedRegion(
+      wb,
+      sheet = sheet_wiliam,
+      cols = 3:(length(sectores) + 2),
+      rows = fila_ini:fila_fin,
+      name = nombre_rango_tc_uniz(pais_orden_codigos[[pais_idx]])
+    )
+  }
+
+  resumen_exportacion <- tibble(
+    Concepto = c(
+      "Archivo",
+      "Hoja WILIAM",
+      "Filas de datos",
+      "Columnas totales",
+      "Columnas de coeficientes",
+      "Primer rango nombrado",
+      "Ultimo rango nombrado",
+      "Columnas sin produccion mantenidas a cero",
+      "Coeficientes fuera de [0,0.85]"
+    ),
+    Valor = c(
+      basename(path),
+      sheet_wiliam,
+      nrow(tc_unizar_export),
+      ncol(tc_unizar_export),
+      length(sectores),
+      nombre_rango_tc_uniz(pais_orden_codigos[[1]]),
+      nombre_rango_tc_uniz(tail(pais_orden_codigos, 1)),
+      nrow(tc_unizar_final$columnas),
+      nrow(detalle_fuera_rango_unizar)
+    )
+  )
+
+  agregar_hoja_tabla(wb, "RESUMEN_EXPORTACION", resumen_exportacion, estilos)
+  agregar_hoja_tabla(wb, "COLUMNAS_CERO_UNIZAR", tc_unizar_final$columnas, estilos)
+  agregar_hoja_tabla(wb, "TC_UNIZAR_FUERA_RANGO", detalle_fuera_rango_unizar, estilos)
+  agregar_hoja_tabla(
+    wb,
+    "TC_UNIZAR_RAW",
+    matriz_a_tabla(tc_unizar$ids_codigos, mat_unizar_raw),
+    estilos
+  )
+  agregar_hoja_tabla(wb, "TC_UNIZAR_FINAL", tc_unizar_export, estilos)
+
+  saveWorkbook(wb, path, overwrite = TRUE)
+}
+
+crear_libro_comprobaciones(checks_file)
+crear_libro_comprobaciones(legacy_checks_file)
+crear_libro_resultados_wiliam(results_file)
 
 print(resumen_checks)
+cat(
+  paste0(
+    "\nComprobaciones: ", checks_file,
+    "\nResultados WILIAM: ", results_file,
+    "\n"
+  )
+)

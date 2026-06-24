@@ -58,6 +58,7 @@ tolerancia_comparacion <- 1e-10
 tolerancia_validacion <- 1e-4
 tolerancia_flujo_pequeno <- 5e-3
 tolerancia_rango <- 1e-10
+tolerancia_suma_share <- 1e-9
 
 ###################
 # CLASIFICACIONES
@@ -466,6 +467,48 @@ detectar_fuera_rango <- function(df, fuente) {
     arrange(desc(Desviacion))
 }
 
+check_suma_share_bis <- function(resultado, fuente) {
+  calc <- resultado$wide
+  total <- resultado$total
+  importaciones <- resultado$importaciones
+  domestico <- resultado$domestico
+  share_importada <- as.matrix(calc[, sectores_columna])
+  share_domestica <- ifelse(
+    abs(total) <= tolerancia,
+    0,
+    domestico / total
+  )
+  suma_share <- share_importada + share_domestica
+  esperado <- ifelse(abs(total) <= tolerancia, 0, 1)
+  error_abs <- abs(suma_share - esperado)
+  posiciones <- which(
+    matrix(TRUE, nrow = nrow(calc), ncol = length(sectores_columna)),
+    arr.ind = TRUE
+  )
+  fila <- posiciones[, "row"]
+  columna <- posiciones[, "col"]
+
+  tibble(
+    Fuente = fuente,
+    Pais = calc$Pais[fila],
+    Producto = calc$Sector[fila],
+    Uso = sectores_columna[columna],
+    Importaciones = importaciones[posiciones],
+    Domestico = domestico[posiciones],
+    Total = total[posiciones],
+    BIS = share_importada[posiciones],
+    Share_domestica = share_domestica[posiciones],
+    Suma_share = suma_share[posiciones],
+    Esperado = esperado[posiciones],
+    Error_abs = error_abs[posiciones],
+    Check_suma_share = if_else(
+      Error_abs <= tolerancia_suma_share,
+      "BIEN",
+      "REVISAR"
+    )
+  )
+}
+
 ###################
 # EJECUCION WILIAM
 ###################
@@ -647,6 +690,15 @@ fuera_rango_unizar_ajustado <- detectar_fuera_rango(
   resultado_unizar_ajustado$wide,
   "UNIZAR ajustado"
 )
+check_suma_unizar_ajustado <- check_suma_share_bis(
+  resultado_unizar_ajustado,
+  "UNIZAR ajustado"
+)
+
+grupos_unizar_activos <- check_suma_unizar_ajustado %>%
+  filter(Esperado == 1)
+grupos_unizar_cero <- check_suma_unizar_ajustado %>%
+  filter(Esperado == 0)
 
 negativos_unizar <- resultado_unizar_ajustado$negativos %>%
   mutate(
@@ -687,6 +739,8 @@ resumen_checks <- tibble(
     "Rango [0,1] de WILIAM oficial a precios basicos",
     "Rango [0,1] de WILIAM con fuentes efectivas del modelo",
     "Negativos UNIZAR limitados a variaciones de existencias",
+    "Suma de shares BIS UNIZAR ajustado en grupos con flujo",
+    "Suma de shares BIS UNIZAR ajustado en grupos sin flujo",
     "Rango [0,1] de UNIZAR sin tratar negativos",
     "Rango [0,1] de UNIZAR ajustado",
     "Ceros UNIZAR conservados exactamente"
@@ -699,6 +753,8 @@ resumen_checks <- tibble(
     )),
     length(as.matrix(bis_wiliam_modelo[, sectores_columna])),
     nrow(negativos_unizar),
+    nrow(grupos_unizar_activos),
+    nrow(grupos_unizar_cero),
     total_celdas,
     total_celdas,
     ceros_unizar
@@ -718,6 +774,8 @@ resumen_checks <- tibble(
       negativos_unizar$Uso ==
         "CHANGE_IN_INVENTORIES_AND_VALUABLES"
     ),
+    sum(grupos_unizar_activos$Check_suma_share == "BIEN"),
+    sum(grupos_unizar_cero$Check_suma_share == "BIEN"),
     total_celdas - nrow(fuera_rango_unizar_raw),
     total_celdas - nrow(fuera_rango_unizar_ajustado),
     ceros_unizar
@@ -737,6 +795,8 @@ resumen_checks <- tibble(
       negativos_unizar$Uso !=
         "CHANGE_IN_INVENTORIES_AND_VALUABLES"
     ),
+    sum(grupos_unizar_activos$Check_suma_share == "REVISAR"),
+    sum(grupos_unizar_cero$Check_suma_share == "REVISAR"),
     nrow(fuera_rango_unizar_raw),
     nrow(fuera_rango_unizar_ajustado),
     0
@@ -769,6 +829,16 @@ resumen_checks <- tibble(
       "DOCUMENTADO"
     ),
     "BIEN",
+    if_else(
+      all(grupos_unizar_activos$Check_suma_share == "BIEN"),
+      "BIEN",
+      "REVISAR"
+    ),
+    if_else(
+      all(grupos_unizar_cero$Check_suma_share == "BIEN"),
+      "BIEN",
+      "REVISAR"
+    ),
     if_else(
       nrow(fuera_rango_unizar_raw) == 0,
       "BIEN",
@@ -872,7 +942,8 @@ metodologia <- tibble(
     "3. Fuente efectiva para demanda final",
     "4. Aplicacion UNIZAR sin ajuste",
     "5. Aplicacion UNIZAR ajustada",
-    "6. Salida operativa"
+    "6. Comprobacion de suma",
+    "7. Salida operativa"
   ),
   Descripcion = c(
     paste(
@@ -899,6 +970,10 @@ metodologia <- tibble(
       "flujos negativos de variaciones de existencias se ponen a cero;",
       celdas_modificadas,
       "coeficientes cambian."
+    ),
+    paste(
+      "Se comprueba que BIS importado + share domestica suma 1",
+      "cuando existe flujo total, y suma 0 cuando no existe flujo."
     ),
     paste(
       "Base_Import_Share_R.xlsx contiene la version UNIZAR ajustada;",
@@ -930,6 +1005,7 @@ hojas <- list(
   BIS_WILIAM_MODELO = bis_wiliam_modelo,
   BIS_UNIZAR_RAW = resultado_unizar_raw$wide,
   BIS_UNIZAR_AJUSTADO = resultado_unizar_ajustado$wide,
+  CHECK_SUMA_SHARE_UNIZAR = check_suma_unizar_ajustado,
   FUERA_RANGO_WILIAM_BP = fuera_rango_wiliam_bp,
   FUERA_RANGO_WILIAM_MODELO = fuera_rango_wiliam_modelo,
   FUERA_RANGO_UNIZAR_RAW = fuera_rango_unizar_raw,
